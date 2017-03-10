@@ -7,10 +7,10 @@ Bilateral filter for VapourSynth based on the OpenCV-CUDA library.
 
 The intensity value at each pixel in an image is replaced by a weighted average of intensity values from nearby pixels. This weight can be based on a Gaussian distribution.
 
-Special thanks to [Kice](https://github.com/kice) for doing most of the work. Some supporting code is copied from [CPU-based Bilateral filter for VapourSynth](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Bilateral).
+Special thanks to [Kice](https://github.com/kice) for doing most of the work. Part of the support code is copied from [CPU-based Bilateral filter for VapourSynth](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Bilateral).
 
 ## Requirements
-CUDA-Enabled GPU(s)
+CUDA-Enabled GPU(s), OpenCV run-time library with CUDA module
 
 ## Supported Formats
 

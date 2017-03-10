@@ -88,11 +88,11 @@ static const VSFrameRef *VS_CC BilateralGetFrame(int n, int activationReason, vo
 		VSFrameRef * dst = vsapi->newVideoFrame2(d->vi.format, d->vi.width, d->vi.height, cp_planes, planes, src, core);
 
 		if (d->vi.format->sampleType == stInteger) {
-			if (d->vi.format->bitsPerSample == 8)
+			if (d->vi.format->bytesPerSample == 1)
 			{
 				process<uint8_t>(src, dst, d, vsapi);
 			}
-			else if (d->vi.format->bitsPerSample == 16)
+			else if (d->vi.format->bytesPerSample == 2)
 			{
 				process<uint16_t>(src, dst, d, vsapi);
 			}
