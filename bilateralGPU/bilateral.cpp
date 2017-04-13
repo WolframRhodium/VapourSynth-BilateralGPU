@@ -136,7 +136,7 @@ static void VS_CC BilateralCreate(const VSMap *in, VSMap *out, void *userData, V
 	{
 		if (i < m)
 		{
-			d.sigma_spatial[i] = (float) vsapi->propGetFloat(in, "sigma_spatial", i, nullptr);
+			d.sigma_spatial[i] = static_cast<float>(vsapi->propGetFloat(in, "sigma_spatial", i, nullptr));
 		}
 		else if (i == 0)
 		{
@@ -144,7 +144,7 @@ static void VS_CC BilateralCreate(const VSMap *in, VSMap *out, void *userData, V
 		}
 		else if (i == 1 && (d.vi.format->colorFamily == cmYUV || d.vi.format->colorFamily == cmYCoCg) && d.vi.format->subSamplingH && d.vi.format->subSamplingW) // Reduce sigmaS for sub-sampled chroma planes by default
 		{
-			d.sigma_spatial[1] = (float) (d.sigma_spatial[0] / std::sqrt((1 << d.vi.format->subSamplingH)*(1 << d.vi.format->subSamplingW)));
+			d.sigma_spatial[1] = static_cast<float>((d.sigma_spatial[0] / std::sqrt((1 << d.vi.format->subSamplingH)*(1 << d.vi.format->subSamplingW))));
 		}
 		else
 		{
@@ -163,7 +163,7 @@ static void VS_CC BilateralCreate(const VSMap *in, VSMap *out, void *userData, V
 	{
 		if (i < m)
 		{
-			d.sigma_color[i] = (float) vsapi->propGetFloat(in, "sigma_color", i, nullptr);
+			d.sigma_color[i] = static_cast<float>(vsapi->propGetFloat(in, "sigma_color", i, nullptr));
 		}
 		else if (i == 0)
 		{
@@ -180,10 +180,14 @@ static void VS_CC BilateralCreate(const VSMap *in, VSMap *out, void *userData, V
 			return;
 		}
 
-		// normalize sigma_color for integer clip whose bitdepth is higher than 8
-		if (d.vi.format->sampleType == stInteger && d.vi.format->bitsPerSample > 8)
+		// normalize sigma_color
+		if (d.vi.format->sampleType == stInteger && d.vi.format->bitsPerSample != 8)
 		{
-			d.sigma_color[i] *= ((1 << d.vi.format->bitsPerSample) - 1) / 255;
+			d.sigma_color[i] = d.sigma_color[i] / 255 * ((1 << d.vi.format->bitsPerSample) - 1);
+		}
+		else if (d.vi.format->sampleType == stFloat)
+		{
+			d.sigma_color[i] /= 255;
 		}
 	}
 
