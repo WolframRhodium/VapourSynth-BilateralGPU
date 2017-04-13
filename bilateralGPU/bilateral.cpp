@@ -1,8 +1,8 @@
 //Copyright (c) 2017 WolframRhodium. All rights reserved.
 
-#include <opencv2\cudaimgproc.hpp>
-#include <vapoursynth\VapourSynth.h>
-#include <vapoursynth\VSHelper.h>
+#include <opencv2/cudaimgproc.hpp>
+#include <vapoursynth/VapourSynth.h>
+#include <vapoursynth/VSHelper.h>
 
 struct BilateralData
 {
@@ -178,6 +178,12 @@ static void VS_CC BilateralCreate(const VSMap *in, VSMap *out, void *userData, V
 		{
 			vsapi->setError(out, "Bilateral: \"sigma_color\" must be greater than zero.");
 			return;
+		}
+
+		// normalize sigma_color for integer clip whose bitdepth is higher than 8
+		if (d.vi.format->sampleType == stInteger && d.vi.format->bitsPerSample > 8)
+		{
+			d.sigma_color[i] *= ((1 << d.vi.format->bitsPerSample) - 1) / 255;
 		}
 	}
 

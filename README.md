@@ -26,10 +26,13 @@ core.bilateralgpu.Bilateral(clip clip, float[] sigma_spatial=1.0, float[] sigma_
     The input clip.
 
 - sigma_spatial: (Default: 1.0)
-    Filter sigma in the color space.
+    Filter sigma in the coordinate space.
+	Use an array to assign it for each plane. If sigma_spatial for the second plane is not specified, it will be set according to the sigma_spatial of first plane and sub-sampling.
 
 - sigma_color: (Default: 1.0)
-    Filter sigma in the coordinate space.
+    Filter sigma in the color space.
+	Use an array to it for each plane, otherwise the same sigma_color is used for all the planes.
+	If the sample type is integer, this will be normalized internally so that same values get similar result for different bitdepth.
 
 - planes:
     An array to specify which planes to process.
