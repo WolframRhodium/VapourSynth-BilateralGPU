@@ -33,6 +33,7 @@ core.bilateralgpu.Bilateral(clip clip, float[] sigma_spatial=1.0, float[] sigma_
     Filter sigma in the color space.
 	Use an array to assign it for each plane, otherwise the same sigma_color is used for all the planes.
 	It will be normalized internally, so that for clips with different bit depths, the same values get similar results.
+	It's equivalent to `SigmaR * 255` in [bilateral.Bilateral()](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Bilateral).
 
 - planes:
     An array to specify which planes to process.
