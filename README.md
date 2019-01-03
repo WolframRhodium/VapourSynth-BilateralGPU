@@ -3,7 +3,7 @@ Copyright© 2017 WolframRhodium
 
 Bilateral filter for VapourSynth based on the OpenCV-CUDA library.
 
-**_DEPRECATED_. Use [CuPy-based implementation](https://github.com/WolframRhodium/muvsfunc/blob/master/Collections/examples/bilateral_gpu_cupy.vpy) instead.**
+**_DEPRECATED_. Use [CuPy-based implementation](https://github.com/WolframRhodium/muvsfunc/blob/master/Collections/examples/BilateralGPU_cupy/bilateral_gpu_cupy.vpy) instead.**
 
 ## Description
 [Bilateral filter](https://en.wikipedia.org/wiki/Bilateral_filter) is a non-linear, edge-preserving and noise-reducing smoothing filter for images.
