@@ -161,103 +161,111 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
 
         int lock_idx = 0;
         d->semaphore.acquire();
-        for (int i = 0; i < d->num_streams; ++i) {
-            if (!d->locks[i].test_and_set(std::memory_order::acquire)) {
-                lock_idx = i;
-                break;
+        if (d->num_streams > 1) {
+            for (int i = 0; i < d->num_streams; ++i) {
+                if (!d->locks[i].test_and_set(std::memory_order::acquire)) {
+                    lock_idx = i;
+                    break;
+                }
             }
         }
 
         auto set_error = [&](const std::string & error_message) {
-            d->locks[lock_idx].clear(std::memory_order::release);
+            if (d->num_streams > 1) {
+                d->locks[lock_idx].clear(std::memory_order::release);
+            }
             d->semaphore.release();
             vsapi->setFilterError(("BilateralGPU: " + error_message).c_str(), frameCtx);
             vsapi->freeFrame(src);
             return nullptr;
         };
 
-        float * h_buffer = d->resources[lock_idx].h_buffer.data;
-        cudaStream_t stream = d->resources[lock_idx].stream.data;
+        float * h_buffer = d->resources[lock_idx].h_buffer;
+        cudaStream_t stream = d->resources[lock_idx].stream;
+        const auto & graphexecs = d->resources[lock_idx].graphexecs;
 
         for (int plane = 0; plane < d->vi->format->numPlanes; plane++) {
-            if (d->process[plane]) {
-                int width = vsapi->getFrameWidth(src, plane);
-                int height = vsapi->getFrameHeight(src, plane);
+            if (!d->process[plane]) {
+                continue;
+            }
 
-                int s_pitch = vsapi->getStride(src, plane);
-                int s_stride = s_pitch / (bps / 8);
-                int width_bytes = width * sizeof(float);
-                auto srcp = vsapi->getReadPtr(src, plane);
+            int width = vsapi->getFrameWidth(src, plane);
+            int height = vsapi->getFrameHeight(src, plane);
 
-                if (bps == 32) {
-                    vs_bitblt(h_buffer, d_pitch, srcp, s_pitch, width_bytes, height);
-                } else if (bps == 16) {
-                    auto h_bufferp = h_buffer;
-                    auto src16p = reinterpret_cast<const uint16_t *>(srcp);
+            int s_pitch = vsapi->getStride(src, plane);
+            int s_stride = s_pitch / (bps / 8);
+            int width_bytes = width * sizeof(float);
+            auto srcp = vsapi->getReadPtr(src, plane);
 
-                    for (int y = 0; y < height; ++y) {
-                        for (int x = 0; x < width; ++x) {
-                            h_bufferp[x] = static_cast<float>(src16p[x]) / 65535.f;
-                        }
+            if (bps == 32) {
+                vs_bitblt(h_buffer, d_pitch, srcp, s_pitch, width_bytes, height);
+            } else if (bps == 16) {
+                auto h_bufferp = h_buffer;
+                auto src16p = reinterpret_cast<const uint16_t *>(srcp);
 
-                        h_bufferp += d_stride;
-                        src16p += s_stride;
+                for (int y = 0; y < height; ++y) {
+                    for (int x = 0; x < width; ++x) {
+                        h_bufferp[x] = static_cast<float>(src16p[x]) / 65535.f;
                     }
-                } else if (bps == 8) {
-                    auto h_bufferp = h_buffer;
-                    auto src8p = srcp;
 
-                    for (int y = 0; y < height; ++y) {
-                        for (int x = 0; x < width; ++x) {
-                            h_bufferp[x] = static_cast<float>(src8p[x]) / 255.f;
-                        }
-
-                        h_bufferp += d_stride;
-                        src8p += s_stride;
-                    }
+                    h_bufferp += d_stride;
+                    src16p += s_stride;
                 }
+            } else if (bps == 8) {
+                auto h_bufferp = h_buffer;
+                auto src8p = srcp;
 
-                cudaGraphExec_t graphexec = d->resources[lock_idx].graphexecs[plane];
-                checkError(cudaGraphLaunch(graphexec, stream));
-                checkError(cudaStreamSynchronize(stream));
-
-                auto dstp = vsapi->getWritePtr(dst, plane);
-
-                if (bps == 32) {
-                    vs_bitblt(dstp, s_pitch, h_buffer, d_pitch, width_bytes, height);
-                } else if (bps == 16) {
-                    auto dst16p = reinterpret_cast<uint16_t *>(dstp);
-                    auto h_bufferp = h_buffer;
-
-                    for (int y = 0; y < height; ++y) {
-                        for (int x = 0; x < width; ++x) {
-                            float dstf = h_bufferp[x] * 65535.f;
-                            float clamped_dstf = std::min(std::max(0.f, dstf + 0.5f), 65535.f);
-                            dst16p[x] = static_cast<uint16_t>(std::roundf(clamped_dstf));
-                        }
-
-                        dst16p += s_stride;
-                        h_bufferp += d_stride;
+                for (int y = 0; y < height; ++y) {
+                    for (int x = 0; x < width; ++x) {
+                        h_bufferp[x] = static_cast<float>(src8p[x]) / 255.f;
                     }
-                } else if (bps == 8) {
-                    auto dst8p = dstp;
-                    auto h_bufferp = h_buffer;
 
-                    for (int y = 0; y < height; ++y) {
-                        for (int x = 0; x < width; ++x) {
-                            float dstf = h_bufferp[x] * 255.f;
-                            float clamped_dstf = std::min(std::max(0.f, dstf + 0.5f), 255.f);
-                            dst8p[x] = static_cast<uint8_t>(std::roundf(clamped_dstf));
-                        }
+                    h_bufferp += d_stride;
+                    src8p += s_stride;
+                }
+            }
 
-                        dst8p += s_stride;
-                        h_bufferp += d_stride;
+            checkError(cudaGraphLaunch(graphexecs[plane], stream));
+            checkError(cudaStreamSynchronize(stream));
+
+            auto dstp = vsapi->getWritePtr(dst, plane);
+
+            if (bps == 32) {
+                vs_bitblt(dstp, s_pitch, h_buffer, d_pitch, width_bytes, height);
+            } else if (bps == 16) {
+                auto dst16p = reinterpret_cast<uint16_t *>(dstp);
+                auto h_bufferp = h_buffer;
+
+                for (int y = 0; y < height; ++y) {
+                    for (int x = 0; x < width; ++x) {
+                        float dstf = h_bufferp[x] * 65535.f;
+                        float clamped_dstf = std::min(std::max(0.f, dstf + 0.5f), 65535.f);
+                        dst16p[x] = static_cast<uint16_t>(std::roundf(clamped_dstf));
                     }
+
+                    dst16p += s_stride;
+                    h_bufferp += d_stride;
+                }
+            } else if (bps == 8) {
+                auto dst8p = dstp;
+                auto h_bufferp = h_buffer;
+
+                for (int y = 0; y < height; ++y) {
+                    for (int x = 0; x < width; ++x) {
+                        float dstf = h_bufferp[x] * 255.f;
+                        float clamped_dstf = std::min(std::max(0.f, dstf + 0.5f), 255.f);
+                        dst8p[x] = static_cast<uint8_t>(std::roundf(clamped_dstf));
+                    }
+
+                    dst8p += s_stride;
+                    h_bufferp += d_stride;
                 }
             }
         }
 
-        d->locks[lock_idx].clear(std::memory_order::release);
+        if (d->num_streams > 1) {
+            d->locks[lock_idx].clear(std::memory_order::release);
+        }
         d->semaphore.release();
 
         vsapi->freeFrame(src);
@@ -428,17 +436,19 @@ static void VS_CC BilateralCreate(
 
             std::array<Resource<cudaGraphExec_t, cudaGraphExecDestroy>, 3> graphexecs {};
             for (int plane = 0; plane < d->vi->format->numPlanes; ++plane) {
-                if (d->process[plane]) {
-                    int plane_width { plane == 0 ? width : width >> ssw };
-                    int plane_height { plane == 0 ? height : height >> ssh };
-
-                    graphexecs[plane] = get_graphexec(
-                        d_dst, d_src, h_buffer, 
-                        plane_width, plane_height, d->d_pitch / sizeof(float), 
-                        sigma_spatial[plane], sigma_color[plane], radius[plane], 
-                        use_shared_memory
-                    );
+                if (!d->process[plane]) {
+                    continue;
                 }
+
+                int plane_width { plane == 0 ? width : width >> ssw };
+                int plane_height { plane == 0 ? height : height >> ssh };
+
+                graphexecs[plane] = get_graphexec(
+                    d_dst, d_src, h_buffer, 
+                    plane_width, plane_height, d->d_pitch / sizeof(float), 
+                    sigma_spatial[plane], sigma_color[plane], radius[plane], 
+                    use_shared_memory
+                );
             }
 
             d->resources.push_back(CUDA_Resource{

@@ -41,6 +41,7 @@ static void bilateral(
         for (int cy = -radius; cy <= radius; ++cy) {
             int sy = cy + radius + threadIdx.y;
 
+            #pragma unroll 2
             for (int cx = -radius; cx <= radius; ++cx) {
                 int sx = cx + radius + threadIdx.x;
 
