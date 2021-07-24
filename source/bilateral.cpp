@@ -20,7 +20,8 @@ using namespace std::string_literals;
 extern cudaGraphExec_t get_graphexec(
     float * d_dst, float * d_src, float * h_buffer, 
     int width, int height, int stride, 
-    float sigma_spatial, float sigma_color, int radius);
+    float sigma_spatial, float sigma_color, int radius, 
+    bool use_shared_memory);
 
 #define checkError(expr) do {                                                               \
     cudaError_t __err = expr;                                                               \
@@ -110,8 +111,12 @@ struct CUDA_Resource {
 struct BilateralData {
     VSNodeRef * node;
     const VSVideoInfo * vi;
-    float sigma_spatial[3], sigma_color[3];
-    int radius[3], device_id, num_streams;
+
+    // stored in graphexec
+    // float sigma_spatial[3], sigma_color[3];
+    // int radius[3];
+
+    int device_id, num_streams;
     bool process[3] { true, true, true };
 
     size_t d_pitch;
@@ -303,67 +308,66 @@ static void VS_CC BilateralCreate(
 
     int error;
 
-    for (int i = 0; i < std::ssize(d->sigma_spatial); ++i) {
-        float sigma_spatial = static_cast<float>(
+    float sigma_spatial[3];
+    for (int i = 0; i < std::ssize(sigma_spatial); ++i) {
+        sigma_spatial[i] = static_cast<float>(
             vsapi->propGetFloat(in, "sigma_spatial", i, &error));
 
         if (error) {
             if (i == 0) {
-                sigma_spatial = 3.0f;
+                sigma_spatial[i] = 3.0f;
             } else if (i == 1) {
                 auto subH = d->vi->format->subSamplingH;
                 auto subW = d->vi->format->subSamplingW;
-                sigma_spatial = d->sigma_spatial[0] / std::sqrt((1 << subH) * (1 << subW));
+                sigma_spatial[i] = sigma_spatial[0] / std::sqrt((1 << subH) * (1 << subW));
             } else {
-                sigma_spatial = d->sigma_spatial[i - 1];
+                sigma_spatial[i] = sigma_spatial[i - 1];
             }
-        } else if (sigma_spatial < 0.f) {
+        } else if (sigma_spatial[i] < 0.f) {
             return set_error("\"sigma_spatial\" must be non-negative");
         }
 
-        d->sigma_spatial[i] = sigma_spatial; // unscaled before parsing argument "radius"
-
-        if (sigma_spatial < FLT_EPSILON) {
+        if (sigma_spatial[i] < FLT_EPSILON) {
             d->process[i] = false;
         }
     }
 
-    for (int i = 0; i < std::ssize(d->sigma_color); ++i) {
-        float sigma_color = static_cast<float>(
+    float sigma_color[3];
+    for (int i = 0; i < std::ssize(sigma_color); ++i) {
+        sigma_color[i] = static_cast<float>(
             vsapi->propGetFloat(in, "sigma_color", i, &error));
 
         if (error) {
             if (i == 0) {
-                sigma_color = 0.02f;
+                sigma_color[i] = 0.02f;
             } else {
-                sigma_color = d->sigma_color[i - 1];
+                sigma_color[i] = sigma_color[i - 1];
             }
-        } else if (sigma_color < 0.f) {
+        } else if (sigma_color[i] < 0.f) {
             return set_error("\"sigma_color\" must be non-negative");
         }
-
-        d->sigma_color[i] = -0.5f / (sigma_color * sigma_color);
-
-        if (sigma_color < FLT_EPSILON) {
+    }
+    for (int i = 0; i < std::ssize(sigma_color); ++i) {
+        if (sigma_color[i] < FLT_EPSILON) {
             d->process[i] = false;
+        } else {
+            sigma_color[i] = -0.5f / (sigma_color[i] * sigma_color[i]);
         }
     }
 
-    for (int i = 0; i < std::ssize(d->radius); ++i) {
-        int radius = int64ToIntS(
-            vsapi->propGetInt(in, "radius", i, &error));
+    int radius[3];
+    for (int i = 0; i < std::ssize(radius); ++i) {
+        radius[i] = int64ToIntS(vsapi->propGetInt(in, "radius", i, &error));
 
         if (error) {
-            radius = std::max(1, static_cast<int>(std::roundf(d->sigma_spatial[i] * 3.f)));
-        } else if (radius <= 0) {
+            radius[i] = std::max(1, static_cast<int>(std::roundf(sigma_spatial[i] * 3.f)));
+        } else if (radius[i] <= 0) {
             return set_error("\"radius\" must be positive");
         }
-
-        d->radius[i] = radius;
     }
 
-    for (int i = 0; i < std::ssize(d->sigma_spatial); ++i) {
-        d->sigma_spatial[i] = -0.5f / (d->sigma_spatial[i] * d->sigma_spatial[i]);
+    for (int i = 0; i < std::ssize(sigma_spatial); ++i) {
+        sigma_spatial[i] = -0.5f / (sigma_spatial[i] * sigma_spatial[i]);
     }
 
     int device_id = int64ToIntS(vsapi->propGetInt(in, "device_id", 0, &error));
@@ -383,6 +387,11 @@ static void VS_CC BilateralCreate(
     d->num_streams = int64ToIntS(vsapi->propGetInt(in, "num_streams", 0, &error));
     if (error) {
         d->num_streams = 4;
+    }
+
+    bool use_shared_memory = !!vsapi->propGetInt(in, "use_shared_memory", 0, &error);
+    if (error) {
+        use_shared_memory = true;
     }
 
     {
@@ -417,7 +426,7 @@ static void VS_CC BilateralCreate(
             Resource<cudaStream_t, cudaStreamDestroy> stream {};
             checkError(cudaStreamCreateWithFlags(&stream.data, cudaStreamNonBlocking));
 
-            std::array<Resource<cudaGraphExec_t, cudaGraphExecDestroy>, 3> graphexecs;
+            std::array<Resource<cudaGraphExec_t, cudaGraphExecDestroy>, 3> graphexecs {};
             for (int plane = 0; plane < d->vi->format->numPlanes; ++plane) {
                 if (d->process[plane]) {
                     int plane_width { plane == 0 ? width : width >> ssw };
@@ -426,8 +435,8 @@ static void VS_CC BilateralCreate(
                     graphexecs[plane] = get_graphexec(
                         d_dst, d_src, h_buffer, 
                         plane_width, plane_height, d->d_pitch / sizeof(float), 
-                        d->sigma_spatial[plane], d->sigma_color[plane], 
-                        d->radius[plane]
+                        sigma_spatial[plane], sigma_color[plane], radius[plane], 
+                        use_shared_memory
                     );
                 }
             }
@@ -461,6 +470,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(
         "sigma_color:float[]:opt;"
         "radius:int[]:opt;"
         "device_id:int:opt;"
-        "num_streams:int:opt;",
+        "num_streams:int:opt;"
+        "use_shared_memory:int:opt;",
         BilateralCreate, nullptr, plugin);
 }

@@ -3,7 +3,8 @@ constexpr auto BlockDim = dim3(16, 8);
 cudaGraphExec_t get_graphexec(
     float * d_dst, float * d_src, float * h_buffer, 
     int width, int height, int stride, 
-    float sigma_spatial, float sigma_color, int radius);
+    float sigma_spatial, float sigma_color, int radius, 
+    bool use_shared_memory);
 
 template <bool use_shared_memory>
 __global__ 
@@ -78,7 +79,8 @@ static void bilateral(
 cudaGraphExec_t get_graphexec(
     float * d_dst, float * d_src, float * h_buffer, 
     int width, int height, int stride, 
-    float sigma_spatial, float sigma_color, int radius
+    float sigma_spatial, float sigma_color, int radius, 
+    bool use_shared_memory
 ) {
 
     size_t pitch { stride * sizeof(float) };
@@ -115,7 +117,7 @@ cudaGraphExec_t get_graphexec(
         auto blockDim = BlockDim;
         auto sharedMemBytes = 
             (2 * radius + blockDim.y) * (2 * radius + blockDim.x) * sizeof(float);
-        bool useSharedMem = sharedMemBytes < 48 * 1024;
+        bool useSharedMem = use_shared_memory && sharedMemBytes < 48 * 1024;
 
         kernel_params.func = (
             useSharedMem ? 
