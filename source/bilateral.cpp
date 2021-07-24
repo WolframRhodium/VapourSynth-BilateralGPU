@@ -103,7 +103,7 @@ struct CUDA_Resource {
     Resource<float *, cudaFree> d_dst;
     Resource<float *, cudaFreeHost> h_buffer;
     Resource<cudaStream_t, cudaStreamDestroy> stream;
-    Resource<cudaGraphExec_t, cudaGraphExecDestroy> graphexecs[3];
+    std::array<Resource<cudaGraphExec_t, cudaGraphExecDestroy>, 3> graphexecs;
 };
 
 struct BilateralData {
@@ -399,28 +399,24 @@ static void VS_CC BilateralCreate(
         int max_height { d->process[0] ? height : height >> ssh };
 
         for (int i = 0; i < d->num_streams; ++i) {
-            float * d_src_;
+            Resource<float *, cudaFree> d_src {};
             if (i == 0) {
                 checkError(cudaMallocPitch(
-                    &d_src_, &d->d_pitch, max_width * sizeof(float), max_height));
+                    &d_src.data, &d->d_pitch, max_width * sizeof(float), max_height));
             } else {
-                checkError(cudaMalloc(&d_src_, max_height * d->d_pitch));
+                checkError(cudaMalloc(&d_src.data, max_height * d->d_pitch));
             }
-            Resource<float *, cudaFree> d_src { d_src_ };
 
-            float * d_dst_;
-            checkError(cudaMalloc(&d_dst_, max_height * d->d_pitch));
-            Resource<float *, cudaFree> d_dst { d_dst_ };
+            Resource<float *, cudaFree> d_dst {};
+            checkError(cudaMalloc(&d_dst.data, max_height * d->d_pitch));
 
-            float * h_buffer_;
-            checkError(cudaMallocHost(&h_buffer_, max_height * d->d_pitch));
-            Resource<float *, cudaFreeHost> h_buffer { h_buffer_ };
+            Resource<float *, cudaFreeHost> h_buffer {};
+            checkError(cudaMallocHost(&h_buffer.data, max_height * d->d_pitch));
 
-            cudaStream_t stream_;
-            checkError(cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking));
-            Resource<cudaStream_t, cudaStreamDestroy> stream { stream_ };
+            Resource<cudaStream_t, cudaStreamDestroy> stream {};
+            checkError(cudaStreamCreateWithFlags(&stream.data, cudaStreamNonBlocking));
 
-            cudaGraphExec_t graphexecs[3] {};
+            std::array<Resource<cudaGraphExec_t, cudaGraphExecDestroy>, 3> graphexecs;
             for (int plane = 0; plane < d->vi->format->numPlanes; ++plane) {
                 if (d->process[plane]) {
                     int plane_width { plane == 0 ? width : width >> ssw };
@@ -440,7 +436,7 @@ static void VS_CC BilateralCreate(
                 .d_dst = std::move(d_dst), 
                 .h_buffer = std::move(h_buffer), 
                 .stream = std::move(stream), 
-                .graphexecs = { graphexecs[0], graphexecs[1], graphexecs[2] }
+                .graphexecs = std::move(graphexecs)
             });
         }
     }
