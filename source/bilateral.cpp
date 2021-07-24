@@ -1,4 +1,5 @@
 #include <array>
+#include <atomic>
 #include <cfloat>
 #include <cmath>
 #include <iterator>
@@ -6,7 +7,6 @@
 #include <string>
 #include <thread>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
