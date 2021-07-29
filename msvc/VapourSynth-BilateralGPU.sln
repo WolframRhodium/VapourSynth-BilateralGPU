@@ -3,7 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.31112.23
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "VapourSynth-BilateralGPU", "VapourSynth-BilateralGPU.vcxproj", "{E14E241A-017F-4C83-BD95-1812121FDE3E}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BilateralGPU", "VapourSynth-BilateralGPU.vcxproj", "{E14E241A-017F-4C83-BD95-1812121FDE3E}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BilateralGPU_RTC", "VapourSynth-BilateralGPU_RTC.vcxproj", "{838DC19F-B766-4610-8036-187262008985}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -18,6 +20,13 @@ Global
 		{E14E241A-017F-4C83-BD95-1812121FDE3E}.Release|x64.ActiveCfg = Release|x64
 		{E14E241A-017F-4C83-BD95-1812121FDE3E}.Release|x64.Build.0 = Release|x64
 		{E14E241A-017F-4C83-BD95-1812121FDE3E}.Release|x86.ActiveCfg = Release|x64
+		{838DC19F-B766-4610-8036-187262008985}.Debug|x64.ActiveCfg = Release|x64
+		{838DC19F-B766-4610-8036-187262008985}.Debug|x64.Build.0 = Release|x64
+		{838DC19F-B766-4610-8036-187262008985}.Debug|x86.ActiveCfg = Release|x64
+		{838DC19F-B766-4610-8036-187262008985}.Debug|x86.Build.0 = Release|x64
+		{838DC19F-B766-4610-8036-187262008985}.Release|x64.ActiveCfg = Release|x64
+		{838DC19F-B766-4610-8036-187262008985}.Release|x64.Build.0 = Release|x64
+		{838DC19F-B766-4610-8036-187262008985}.Release|x86.ActiveCfg = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -2,6 +2,7 @@
 #include <atomic>
 #include <cfloat>
 #include <cmath>
+#include <cstdint>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -11,6 +12,10 @@
 #include <vector>
 
 #include <cuda_runtime.h>
+
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
 
 #include <vapoursynth/VapourSynth.h>
 #include <vapoursynth/VSHelper.h>
@@ -119,7 +124,7 @@ struct BilateralData {
     int device_id, num_streams;
     bool process[3] { true, true, true };
 
-    size_t d_pitch;
+    int d_pitch;
     ticket_semaphore semaphore;
     std::unique_ptr<std::atomic_flag[]> locks;
     std::vector<CUDA_Resource> resources;
@@ -153,11 +158,6 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
 
         VSFrameRef * dst = vsapi->newVideoFrame2(
             d->vi->format, d->vi->width, d->vi->height, fr, pl, src, core);
-
-        int d_pitch = d->d_pitch;
-        int d_stride = d_pitch / sizeof(float);
-
-        int bps = d->vi->format->bitsPerSample;
 
         int lock_idx = 0;
         d->semaphore.acquire();
@@ -193,32 +193,70 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
             int height = vsapi->getFrameHeight(src, plane);
 
             int s_pitch = vsapi->getStride(src, plane);
+            int bps = d->vi->format->bitsPerSample;
             int s_stride = s_pitch / (bps / 8);
             int width_bytes = width * sizeof(float);
             auto srcp = vsapi->getReadPtr(src, plane);
+            int d_pitch = d->d_pitch;
+            int d_stride = d_pitch / sizeof(float);
 
             if (bps == 32) {
                 vs_bitblt(h_buffer, d_pitch, srcp, s_pitch, width_bytes, height);
             } else if (bps == 16) {
-                auto h_bufferp = h_buffer;
-                auto src16p = reinterpret_cast<const uint16_t *>(srcp);
+                float * h_bufferp = h_buffer;
+                const uint16_t * src16p = reinterpret_cast<const uint16_t *>(srcp);
 
                 for (int y = 0; y < height; ++y) {
-                    for (int x = 0; x < width; ++x) {
-                        h_bufferp[x] = static_cast<float>(src16p[x]) / 65535.f;
+#ifdef __AVX2__
+                    // VideoFrame is at least 32 bytes padded
+                    for (int x = 0; x < width; x += 8) {
+                        __m128i src = _mm_load_si128(
+                            reinterpret_cast<const __m128i *>(&src16p[x]));
+                        __m256 srcf = _mm256_cvtepi32_ps(_mm256_cvtepu16_epi32(src));
+                        srcf = _mm256_mul_ps(srcf, 
+                            _mm256_set1_ps(static_cast<float>(1.0 / 65535.0)));
+                        _mm256_stream_ps(&h_bufferp[x], srcf);
                     }
+#else
+                    for (int x = 0; x < width; ++x) {
+                        h_bufferp[x] = static_cast<float>(src16p[x]) / 65535.0f;
+                    }
+#endif
 
                     h_bufferp += d_stride;
                     src16p += s_stride;
                 }
             } else if (bps == 8) {
-                auto h_bufferp = h_buffer;
-                auto src8p = srcp;
+                float * h_bufferp = h_buffer;
+                const uint8_t * src8p = srcp;
 
                 for (int y = 0; y < height; ++y) {
+#ifdef __AVX2__
+                    // VideoFrame is at least 32 bytes padded
+                    for (int x = 0; x < width; x += 16) {
+                        __m128i src = _mm_load_si128(
+                            reinterpret_cast<const __m128i *>(&src8p[x]));
+                        __m256 srcf_lo = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(src));
+                        srcf_lo = _mm256_mul_ps(
+                            srcf_lo, 
+                            _mm256_set1_ps(static_cast<float>(1.0 / 255.0)));
+                        _mm256_stream_ps(&h_bufferp[x], srcf_lo);
+
+                        __m256 srcf_hi = _mm256_cvtepi32_ps(
+                            _mm256_cvtepu8_epi32(
+                                _mm_castps_si128(
+                                    _mm_permute_ps(
+                                        _mm_castsi128_ps(src), 
+                                        0b01'00'11'10))));
+                        srcf_hi = _mm256_mul_ps(srcf_hi, 
+                            _mm256_set1_ps(static_cast<float>(1.0 / 255.0)));
+                        _mm256_stream_ps(&h_bufferp[x + 8], srcf_hi);
+                    }
+#else
                     for (int x = 0; x < width; ++x) {
                         h_bufferp[x] = static_cast<float>(src8p[x]) / 255.f;
                     }
+#endif
 
                     h_bufferp += d_stride;
                     src8p += s_stride;
@@ -233,29 +271,67 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
             if (bps == 32) {
                 vs_bitblt(dstp, s_pitch, h_buffer, d_pitch, width_bytes, height);
             } else if (bps == 16) {
-                auto dst16p = reinterpret_cast<uint16_t *>(dstp);
-                auto h_bufferp = h_buffer;
+                uint16_t * dst16p = reinterpret_cast<uint16_t *>(dstp);
+                const float * h_bufferp = h_buffer;
 
                 for (int y = 0; y < height; ++y) {
-                    for (int x = 0; x < width; ++x) {
-                        float dstf = h_bufferp[x] * 65535.f;
-                        float clamped_dstf = std::min(std::max(0.f, dstf + 0.5f), 65535.f);
-                        dst16p[x] = static_cast<uint16_t>(std::roundf(clamped_dstf));
+#ifdef __AVX2__
+                    // VideoFrame is at least 32 bytes padded
+                    for (int x = 0; x < width; x += 8) {
+                        __m256 dstf = _mm256_load_ps(&h_bufferp[x]);
+                        dstf = _mm256_mul_ps(dstf, _mm256_set1_ps(65535.0f));
+                        // dstf = _mm256_max_ps(dstf, _mm256_set1_ps(0.f));
+                        // dstf = _mm256_min_ps(dstf, _mm256_set1_ps(65535.0f));
+                        dstf = _mm256_round_ps(dstf, 
+                            _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+                        __m256i dsti32 = _mm256_cvtps_epi32(dstf);
+                        __m128i dstu16 = _mm_packus_epi32(
+                            _mm256_castsi256_si128(dsti32), 
+                            _mm256_extractf128_si256(dsti32, 1)
+                        );
+                        _mm_stream_si128(reinterpret_cast<__m128i *>(&dst16p[x]), dstu16);
                     }
+#else
+                    for (int x = 0; x < width; ++x) {
+                        float dstf = h_bufferp[x] * 65535.0f;
+                        // dstf = std::clamp(dstf, 0.0f, 65535.0f);
+                        dst16p[x] = static_cast<uint16_t>(std::roundf(dstf));
+                    }
+#endif
 
                     dst16p += s_stride;
                     h_bufferp += d_stride;
                 }
             } else if (bps == 8) {
-                auto dst8p = dstp;
-                auto h_bufferp = h_buffer;
+                uint8_t * dst8p = dstp;
+                const float * h_bufferp = h_buffer;
 
                 for (int y = 0; y < height; ++y) {
-                    for (int x = 0; x < width; ++x) {
-                        float dstf = h_bufferp[x] * 255.f;
-                        float clamped_dstf = std::min(std::max(0.f, dstf + 0.5f), 255.f);
-                        dst8p[x] = static_cast<uint8_t>(std::roundf(clamped_dstf));
+#ifdef __AVX2__
+                    for (int x = 0; x < width; x += 8) {
+                        __m256 dstf = _mm256_load_ps(&h_bufferp[x]);
+                        dstf = _mm256_mul_ps(dstf, _mm256_set1_ps(255.0f));
+                        // dstf = _mm256_max_ps(dstf, _mm256_set1_ps(0.f));
+                        // dstf = _mm256_min_ps(dstf, _mm256_set1_ps(255.0f));
+                        dstf = _mm256_round_ps(dstf, 
+                            _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+                        __m256i dsti32 = _mm256_cvtps_epi32(dstf);
+                        __m128i dstu16 = _mm_packus_epi16(
+                            _mm256_castsi256_si128(dsti32), 
+                            _mm256_extractf128_si256(dsti32, 1)
+                        );
+                        __m128i dstu8 = _mm_shuffle_epi8(dstu16, _mm_setr_epi8(
+                            0, 2, 4, 6, 8, 10, 12, 14, 
+                            -1, -1, -1, -1, -1, -1, -1, -1));
+                        *reinterpret_cast<long long *>(&dst8p[x]) = _mm_cvtsi128_si64(dstu8);
                     }
+#else
+                    for (int x = 0; x < width; ++x) {
+                        float dstf = h_bufferp[x] * 255.0f;
+                        // dstf = std::min(std::max(0.f, dstf), 255.0f);
+                        dst8p[x] = static_cast<uint8_t>(std::roundf(dstf));
+                    }
+#endif
 
                     dst8p += s_stride;
                     h_bufferp += d_stride;
@@ -327,7 +403,8 @@ static void VS_CC BilateralCreate(
             } else if (i == 1) {
                 auto subH = d->vi->format->subSamplingH;
                 auto subW = d->vi->format->subSamplingW;
-                sigma_spatial[i] = sigma_spatial[0] / std::sqrt((1 << subH) * (1 << subW));
+                sigma_spatial[i] = static_cast<float>(
+                    sigma_spatial[0] / std::sqrt((1 << subH) * (1 << subW)));
             } else {
                 sigma_spatial[i] = sigma_spatial[i - 1];
             }
@@ -419,8 +496,10 @@ static void VS_CC BilateralCreate(
         for (int i = 0; i < d->num_streams; ++i) {
             Resource<float *, cudaFree> d_src {};
             if (i == 0) {
+                size_t d_pitch;
                 checkError(cudaMallocPitch(
-                    &d_src.data, &d->d_pitch, max_width * sizeof(float), max_height));
+                    &d_src.data, &d_pitch, max_width * sizeof(float), max_height));
+                d->d_pitch = static_cast<int>(d_pitch);
             } else {
                 checkError(cudaMalloc(&d_src.data, max_height * d->d_pitch));
             }
