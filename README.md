@@ -58,3 +58,10 @@ core.{bilateralgpu, bilateralgpu_rtc}.Bilateral(clip clip, float[] sigma_spatial
 - The `_rtc` version has two experimental parameters:
     - block_x, block_y: (Default: 16, 8)
         Block size of launch configuration of the kernel. Don't modify it unless you know what you are doing.
+
+## Compilation
+```bash
+cmake -S . -B build -D CMAKE_BUILD_TYPE=Release -D CMAKE_CUDA_FLAGS="--threads 0 --use_fast_math -Wno-deprecated-gpu-targets" -D CMAKE_CUDA_ARCHITECTURES="50;61-real;75-real;86"
+
+cmake --build build --config Release
+```
