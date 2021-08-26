@@ -5,6 +5,7 @@
 #include <cmath>
 #include <iterator>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -24,8 +25,8 @@
 #include <immintrin.h>
 #endif
 
-#include <vapoursynth/VapourSynth.h>
-#include <vapoursynth/VSHelper.h>
+#include <VapourSynth.h>
+#include <VSHelper.h>
 
 #include "kernel.hpp"
 
@@ -149,9 +150,9 @@ struct BilateralData {
     CUdevice device;
     CUcontext context; // use primary context
     ticket_semaphore semaphore;
-    std::unique_ptr<std::atomic_flag[]> locks;
     Resource<CUmodule, cuModuleUnload> modules[3];
     std::vector<CUDA_Resource> resources;
+    std::mutex resources_lock;
 };
 
 static std::variant<CUmodule, std::string> compile(
@@ -363,30 +364,25 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
         VSFrameRef * dst = vsapi->newVideoFrame2(
             d->vi->format, d->vi->width, d->vi->height, fr, pl, src, core);
 
-        int lock_idx = 0;
         d->semaphore.acquire();
-        if (d->num_streams > 1) {
-            for (int i = 0; i < d->num_streams; ++i) {
-                if (!d->locks[i].test_and_set(std::memory_order::acquire)) {
-                    lock_idx = i;
-                    break;
-                }
-            }
-        }
+        d->resources_lock.lock();
+        auto resource = std::move(d->resources.back());
+        d->resources.pop_back();
+        d->resources_lock.unlock();
 
         auto set_error = [&](const std::string & error_message) {
-            if (d->num_streams > 1) {
-                d->locks[lock_idx].clear(std::memory_order::release);
-            }
+            d->resources_lock.lock();
+            d->resources.push_back(std::move(resource));
+            d->resources_lock.unlock();
             d->semaphore.release();
             vsapi->setFilterError(("BilateralGPU: " + error_message).c_str(), frameCtx);
             vsapi->freeFrame(src);
             return nullptr;
         };
 
-        float * h_buffer = d->resources[lock_idx].h_buffer;
-        CUstream stream = d->resources[lock_idx].stream;
-        const auto & graphexecs = d->resources[lock_idx].graphexecs;
+        float * h_buffer = resource.h_buffer;
+        CUstream stream = resource.stream;
+        const auto & graphexecs = resource.graphexecs;
 
         checkError(cuCtxPushCurrent(d->context));
 
@@ -547,9 +543,9 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
 
         checkError(cuCtxPopCurrent(nullptr));
 
-        if (d->num_streams > 1) {
-            d->locks[lock_idx].clear(std::memory_order::release);
-        }
+        d->resources_lock.lock();
+        d->resources.push_back(std::move(resource));
+        d->resources_lock.unlock();
         d->semaphore.release();
 
         vsapi->freeFrame(src);
@@ -711,7 +707,6 @@ static void VS_CC BilateralCreate(
         }
 
         d->semaphore.current.store(d->num_streams - 1, std::memory_order::relaxed);
-        d->locks = std::make_unique<std::atomic_flag[]>(d->num_streams);
 
         d->resources.reserve(d->num_streams);
 
