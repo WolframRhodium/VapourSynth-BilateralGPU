@@ -32,9 +32,9 @@ static void bilateral(
             /* (2 * radius + BLOCK_Y) * (2 * radius + BLOCK_X) */];
 
         for (int cy = threadIdx.y; cy < 2 * radius + BLOCK_Y; cy += BLOCK_Y) {
-            int sy = min(max(cy - threadIdx.y - radius + y, 0), height - 1);
+            int sy = min(max(cy - static_cast<int>(threadIdx.y) - radius + y, 0), height - 1);
             for (int cx = threadIdx.x; cx < 2 * radius + BLOCK_X; cx += BLOCK_X) {
-                int sx = min(max(cx - threadIdx.x - radius + x, 0), width - 1);
+                int sx = min(max(cx - static_cast<int>(threadIdx.x) - radius + x, 0), width - 1);
                 buffer[cy * (2 * radius + BLOCK_X) + cx] = src[sy * stride + sx];
             }
         }
@@ -164,3 +164,4 @@ cudaGraphExec_t get_graphexec(
 
     return graphexecp;
 }
+

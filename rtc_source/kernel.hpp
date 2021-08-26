@@ -32,9 +32,9 @@ void bilateral(
             /* (2 * radius + blockDim.y) * (2 * radius + blockDim.x) */];
 
         for (int cy = threadIdx.y; cy < 2 * radius + BlockDim.y; cy += BlockDim.y) {
-            int sy = min(max(cy - threadIdx.y - radius + y, 0), height - 1);
+            int sy = min(max(cy - static_cast<int>(threadIdx.y) - radius + y, 0), height - 1);
             for (int cx = threadIdx.x; cx < 2 * radius + BlockDim.x; cx += BlockDim.x) {
-                int sx = min(max(cx - threadIdx.x - radius + x, 0), width - 1);
+                int sx = min(max(cx - static_cast<int>(threadIdx.x) - radius + x, 0), width - 1);
                 buffer[cy * (2 * radius + BlockDim.x) + cx] = src[sy * stride + sx];
             }
         }
