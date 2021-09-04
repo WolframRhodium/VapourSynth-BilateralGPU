@@ -20,9 +20,6 @@ void bilateral(
     const int x = threadIdx.x + blockIdx.x * BlockDim.x;
     const int y = threadIdx.y + blockIdx.y * BlockDim.y;
 
-    if (x >= width || y >= height)
-        return;
-
     float num {};
     float den {};
     const float center = src[y * stride + x];
@@ -40,6 +37,9 @@ void bilateral(
         }
 
         __syncthreads();
+        
+        if (x >= width || y >= height)
+            return;
 
         for (int cy = -radius; cy <= radius; ++cy) {
             int sy = cy + radius + threadIdx.y;
@@ -61,6 +61,9 @@ void bilateral(
 
         dst[y * stride + x] = num / den;
     } else {
+        if (x >= width || y >= height)
+            return;
+
         for (int cy = max(y - radius, 0); cy <= min(y + radius, height - 1); ++cy) {
             for (int cx = max(x - radius, 0); cx <= min(x + radius, width - 1); ++cx) {
                 const float value = src[cy * stride + cx];
