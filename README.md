@@ -15,7 +15,7 @@ Special thanks to [Kice](https://github.com/kice) for doing most of the work in 
 
 - CUDA-enabled GPU(s) of [compute capability](https://developer.nvidia.com/cuda-gpus) 5.0 or higher (Maxwell+).
 
-- GPU driver 450 or newer.
+- GPU driver >= v452.39 for GeForce or `bilateral_rtc` users or >= v496.13 in general.
 
 The plugin can run on older generation of GPUs or CPU without AVX2 support by manual compilation.
 
