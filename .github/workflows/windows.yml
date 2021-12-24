@@ -44,6 +44,8 @@ jobs:
     - name: Configure
       run: cmake -S . -B build -G Ninja
         -D CMAKE_BUILD_TYPE=Release
+        -D USE_NVRTC_STATIC=ON
+        -D CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
         -D VAPOURSYNTH_INCLUDE_DIRECTORY="%cd%\vapoursynth\include"
         -D CMAKE_CXX_FLAGS="/fp:fast /arch:AVX"
         -D CMAKE_CUDA_FLAGS="--threads 0 --use_fast_math --resource-usage -Wno-deprecated-gpu-targets"
