@@ -19,10 +19,21 @@ jobs:
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
 
+    - name: Setup Ninja
+      run: pip install ninja
+
+    - name: Cache CUDA
+      id: cache-cuda
+      uses: actions/cache@v2
+      with:
+        path: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA
+        key: ${{ runner.os }}-cuda-11.5.1
+
     - name: Setup CUDA
+      if: steps.cache-cuda.outputs.cache-hit != 'true'
       run: |
-        curl -s -o cuda_installer.exe -L https://developer.download.nvidia.com/compute/cuda/11.4.1/network_installers/cuda_11.4.1_win10_network.exe
-        cuda_installer.exe -s nvcc_11.4 cudart_11.4 nvrtc_dev_11.4 visual_studio_integration_11.4
+        curl -s -o cuda_installer.exe -L https://developer.download.nvidia.com/compute/cuda/11.5.1/network_installers/cuda_11.5.1_windows_network.exe
+        cuda_installer.exe -s nvcc_11.5 cudart_11.5 nvrtc_dev_11.5
 
     - name: Download VapourSynth headers
       run: |
@@ -31,24 +42,24 @@ jobs:
         mv vapoursynth-*/ vapoursynth/
 
     - name: Configure
-      run: cmake -S . -B build -G "Visual Studio 16 2019" -A x64
+      run: cmake -S . -B build -G Ninja
+        -D CMAKE_BUILD_TYPE=Release
         -D VAPOURSYNTH_INCLUDE_DIRECTORY="%cd%\vapoursynth\include"
-        -D CMAKE_CXX_FLAGS_RELEASE="/fp:fast /arch:AVX"
+        -D CMAKE_CXX_FLAGS="/fp:fast /arch:AVX"
         -D CMAKE_CUDA_FLAGS="--threads 0 --use_fast_math --resource-usage -Wno-deprecated-gpu-targets"
         -D CMAKE_CUDA_ARCHITECTURES="50;61-real;75-real;86"
       env:
-        CUDA_PATH: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.4
-        CUDA_PATH_V11_4: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.4
+        CUDA_PATH: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.5
 
     - name: Build
-      run: cmake --build build --config Release --parallel %NUMBER_OF_PROCESSORS% --verbose
-      env:
-        CUDA_PATH: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.4
-        CUDA_PATH_V11_4: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.4
+      run: cmake --build build --verbose
+
+    - name: Install
+      run: cmake --install build --prefix install
 
     - name: Upload
       uses: actions/upload-artifact@v2
       with:
         name: BilateralGPU-Windows
-        path: build/*/Release/*.dll
+        path: install/bin/*.dll
 

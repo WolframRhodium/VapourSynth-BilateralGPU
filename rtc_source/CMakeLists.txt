@@ -16,4 +16,8 @@ else()
         CXX_STANDARD 20
         CXX_STANDARD_REQUIRED ON)
     target_link_libraries(bilateralgpu_rtc PRIVATE CUDA::cuda_driver CUDA::nvrtc)
+
+    install(TARGETS bilateralgpu_rtc
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()

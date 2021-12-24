@@ -21,3 +21,7 @@ set_target_properties(bilateralgpu_source PROPERTIES
 
 add_library(bilateralgpu SHARED)
 target_link_libraries(bilateralgpu bilateralgpu_source bilateralgpu_kernel)
+
+install(TARGETS bilateralgpu
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
