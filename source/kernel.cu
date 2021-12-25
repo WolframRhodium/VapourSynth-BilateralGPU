@@ -23,7 +23,6 @@ static void bilateral(
 
     float num {};
     float den {};
-    const float center = src[y * stride + x];
 
     if constexpr (use_shared_memory) {
         extern __shared__ float buffer[
@@ -41,6 +40,8 @@ static void bilateral(
         
         if (x >= width || y >= height)
             return;
+
+        const float center = src[y * stride + x];
 
         for (int cy = -radius; cy <= radius; ++cy) {
             int sy = cy + radius + threadIdx.y;
@@ -62,6 +63,8 @@ static void bilateral(
     } else {
         if (x >= width || y >= height)
             return;
+
+        const float center = src[y * stride + x];
 
         for (int cy = max(y - radius, 0); cy <= min(y + radius, height - 1); ++cy) {
             for (int cx = max(x - radius, 0); cx <= min(x + radius, width - 1); ++cx) {
