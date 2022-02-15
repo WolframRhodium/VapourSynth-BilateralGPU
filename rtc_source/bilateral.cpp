@@ -79,7 +79,7 @@ struct ticket_semaphore {
 };
 
 template <typename T, auto deleter>
-    requires 
+    requires
         std::default_initializable<T> &&
         std::is_trivially_copy_assignable_v<T> &&
         std::convertible_to<T, bool> &&
@@ -91,8 +91,8 @@ struct Resource {
 
     [[nodiscard]] constexpr Resource(T x) noexcept : data(x) {}
 
-    [[nodiscard]] constexpr Resource(Resource&& other) noexcept 
-        : data(std::exchange(other.data, T{})) 
+    [[nodiscard]] constexpr Resource(Resource&& other) noexcept
+        : data(std::exchange(other.data, T{}))
     { }
 
     constexpr Resource& operator=(Resource&& other) noexcept {
@@ -201,16 +201,16 @@ static std::variant<CUmodule, std::string> compile(
     checkNVRTCError(nvrtcGetSupportedArchs(supported_archs.get()));
     bool generate_cubin = compute_capability <= supported_archs[num_archs - 1];
 
-    const std::string arch_str = { 
-        generate_cubin ? 
-        "-arch=sm_" + std::to_string(compute_capability) : 
+    const std::string arch_str = {
+        generate_cubin ?
+        "-arch=sm_" + std::to_string(compute_capability) :
         "-arch=compute_" + std::to_string(supported_archs[num_archs - 1])
     };
 
-    const char * opts[] = { 
-        arch_str.c_str(), 
-        "-use_fast_math", 
-        "-std=c++17", 
+    const char * opts[] = {
+        arch_str.c_str(),
+        "-use_fast_math",
+        "-std=c++17",
         "-modify-stack-limit=false"
     };
 
@@ -245,10 +245,10 @@ static std::variant<CUmodule, std::string> compile(
 }
 
 static std::variant<CUgraphExec, std::string> get_graphexec(
-    CUdeviceptr d_dst, CUdeviceptr d_src, float * h_buffer, 
-    int width, int height, int stride, 
-    int radius, 
-    bool use_shared_memory, int block_x, int block_y, 
+    CUdeviceptr d_dst, CUdeviceptr d_src, float * h_buffer,
+    int width, int height, int stride,
+    int radius,
+    bool use_shared_memory, int block_x, int block_y,
     CUcontext context, CUfunction function
 ) {
 
@@ -264,15 +264,15 @@ static std::variant<CUgraphExec, std::string> get_graphexec(
     CUgraphNode n_HtoD;
     {
         CUDA_MEMCPY3D copy_params {
-            .srcMemoryType = CU_MEMORYTYPE_HOST, 
-            .srcHost = h_buffer, 
-            .srcPitch = pitch, 
-            .dstMemoryType = CU_MEMORYTYPE_DEVICE, 
-            .dstDevice = d_src, 
-            .dstPitch = pitch, 
-            .WidthInBytes = width * sizeof(float), 
-            .Height = static_cast<size_t>(height), 
-            .Depth = 1, 
+            .srcMemoryType = CU_MEMORYTYPE_HOST,
+            .srcHost = h_buffer,
+            .srcPitch = pitch,
+            .dstMemoryType = CU_MEMORYTYPE_DEVICE,
+            .dstDevice = d_src,
+            .dstPitch = pitch,
+            .WidthInBytes = width * sizeof(float),
+            .Height = static_cast<size_t>(height),
+            .Depth = 1,
         };
 
         checkError(cuGraphAddMemcpyNode(
@@ -286,21 +286,21 @@ static std::variant<CUgraphExec, std::string> get_graphexec(
         void * kernelParams[] { &d_dst, &d_src };
 
         unsigned int sharedMemBytes = (
-            use_shared_memory ? 
-            (2 * radius + block_y) * (2 * radius + block_x) * sizeof(float) : 
+            use_shared_memory ?
+            (2 * radius + block_y) * (2 * radius + block_x) * sizeof(float) :
             0
         );
-        
+  
         CUDA_KERNEL_NODE_PARAMS node_params {
-            .func = function, 
-            .gridDimX = static_cast<unsigned int>((width - 1) / block_x + 1), 
-            .gridDimY = static_cast<unsigned int>((height - 1) / block_y + 1), 
-            .gridDimZ = 1, 
-            .blockDimX = static_cast<unsigned int>(block_x), 
-            .blockDimY = static_cast<unsigned int>(block_y), 
-            .blockDimZ = 1, 
-            .sharedMemBytes = sharedMemBytes, 
-            .kernelParams = kernelParams, 
+            .func = function,
+            .gridDimX = static_cast<unsigned int>((width - 1) / block_x + 1),
+            .gridDimY = static_cast<unsigned int>((height - 1) / block_y + 1),
+            .gridDimZ = 1,
+            .blockDimX = static_cast<unsigned int>(block_x),
+            .blockDimY = static_cast<unsigned int>(block_y),
+            .blockDimZ = 1,
+            .sharedMemBytes = sharedMemBytes,
+            .kernelParams = kernelParams,
         };
 
         checkError(cuGraphAddKernelNode(
@@ -312,20 +312,20 @@ static std::variant<CUgraphExec, std::string> get_graphexec(
         CUgraphNode dependencies[] { n_kernel };
 
         CUDA_MEMCPY3D copy_params {
-            .srcMemoryType = CU_MEMORYTYPE_DEVICE, 
-            .srcDevice = d_dst, 
-            .srcPitch = pitch, 
-            .dstMemoryType = CU_MEMORYTYPE_HOST, 
-            .dstHost = h_buffer, 
-            .dstPitch = pitch, 
-            .WidthInBytes = width * sizeof(float), 
-            .Height = static_cast<size_t>(height), 
-            .Depth = 1, 
+            .srcMemoryType = CU_MEMORYTYPE_DEVICE,
+            .srcDevice = d_dst,
+            .srcPitch = pitch,
+            .dstMemoryType = CU_MEMORYTYPE_HOST,
+            .dstHost = h_buffer,
+            .dstPitch = pitch,
+            .WidthInBytes = width * sizeof(float),
+            .Height = static_cast<size_t>(height),
+            .Depth = 1,
         };
 
         checkError(cuGraphAddMemcpyNode(
-            &n_DtoH, graph, 
-            dependencies, std::size(dependencies), 
+            &n_DtoH, graph,
+            dependencies, std::size(dependencies),
             &copy_params, context));
     }
 
@@ -337,7 +337,7 @@ static std::variant<CUgraphExec, std::string> get_graphexec(
 
 
 static void VS_CC BilateralInit(
-    VSMap *in, VSMap *out, void **instanceData, VSNode *node, 
+    VSMap *in, VSMap *out, void **instanceData, VSNode *node,
     VSCore *core, const VSAPI *vsapi) {
 
     BilateralData * d = static_cast<BilateralData *>(*instanceData);
@@ -345,7 +345,7 @@ static void VS_CC BilateralInit(
 }
 
 static const VSFrameRef *VS_CC BilateralGetFrame(
-    int n, int activationReason, void **instanceData, void **frameData, 
+    int n, int activationReason, void **instanceData, void **frameData,
     VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
 
     BilateralData * d = static_cast<BilateralData *>(*instanceData);
@@ -356,10 +356,10 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
         const VSFrameRef * src = vsapi->getFrameFilter(n, d->node, frameCtx);
 
         const int pl[] = { 0, 1, 2 };
-        const VSFrameRef * fr[] = { 
-            d->process[0] ? nullptr : src, 
-            d->process[1] ? nullptr : src, 
-            d->process[2] ? nullptr : src 
+        const VSFrameRef * fr[] = {
+            d->process[0] ? nullptr : src,
+            d->process[1] ? nullptr : src,
+            d->process[2] ? nullptr : src
         };
 
         VSFrameRef * dst = vsapi->newVideoFrame2(
@@ -416,7 +416,7 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
                         __m128i src = _mm_load_si128(
                             reinterpret_cast<const __m128i *>(&src16p[x]));
                         __m256 srcf = _mm256_cvtepi32_ps(_mm256_cvtepu16_epi32(src));
-                        srcf = _mm256_mul_ps(srcf, 
+                        srcf = _mm256_mul_ps(srcf,
                             _mm256_set1_ps(static_cast<float>(1.0 / 65535.0)));
                         _mm256_stream_ps(&h_bufferp[x], srcf);
                     }
@@ -441,7 +441,7 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
                             reinterpret_cast<const __m128i *>(&src8p[x]));
                         __m256 srcf_lo = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(src));
                         srcf_lo = _mm256_mul_ps(
-                            srcf_lo, 
+                            srcf_lo,
                             _mm256_set1_ps(static_cast<float>(1.0 / 255.0)));
                         _mm256_stream_ps(&h_bufferp[x], srcf_lo);
 
@@ -449,9 +449,9 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
                             _mm256_cvtepu8_epi32(
                                 _mm_castps_si128(
                                     _mm_permute_ps(
-                                        _mm_castsi128_ps(src), 
+                                        _mm_castsi128_ps(src),
                                         0b01'00'11'10))));
-                        srcf_hi = _mm256_mul_ps(srcf_hi, 
+                        srcf_hi = _mm256_mul_ps(srcf_hi,
                             _mm256_set1_ps(static_cast<float>(1.0 / 255.0)));
                         _mm256_stream_ps(&h_bufferp[x + 8], srcf_hi);
                     }
@@ -485,11 +485,11 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
                         dstf = _mm256_mul_ps(dstf, _mm256_set1_ps(65535.0f));
                         // dstf = _mm256_max_ps(dstf, _mm256_set1_ps(0.f));
                         // dstf = _mm256_min_ps(dstf, _mm256_set1_ps(65535.0f));
-                        dstf = _mm256_round_ps(dstf, 
+                        dstf = _mm256_round_ps(dstf,
                             _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
                         __m256i dsti32 = _mm256_cvtps_epi32(dstf);
                         __m128i dstu16 = _mm_packus_epi32(
-                            _mm256_castsi256_si128(dsti32), 
+                            _mm256_castsi256_si128(dsti32),
                             _mm256_extractf128_si256(dsti32, 1)
                         );
                         _mm_stream_si128(reinterpret_cast<__m128i *>(&dst16p[x]), dstu16);
@@ -516,15 +516,15 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
                         dstf = _mm256_mul_ps(dstf, _mm256_set1_ps(255.0f));
                         // dstf = _mm256_max_ps(dstf, _mm256_set1_ps(0.f));
                         // dstf = _mm256_min_ps(dstf, _mm256_set1_ps(255.0f));
-                        dstf = _mm256_round_ps(dstf, 
+                        dstf = _mm256_round_ps(dstf,
                             _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
                         __m256i dsti32 = _mm256_cvtps_epi32(dstf);
                         __m128i dstu16 = _mm_packus_epi16(
-                            _mm256_castsi256_si128(dsti32), 
+                            _mm256_castsi256_si128(dsti32),
                             _mm256_extractf128_si256(dsti32, 1)
                         );
                         __m128i dstu8 = _mm_shuffle_epi8(dstu16, _mm_setr_epi8(
-                            0, 2, 4, 6, 8, 10, 12, 14, 
+                            0, 2, 4, 6, 8, 10, 12, 14,
                             -1, -1, -1, -1, -1, -1, -1, -1));
                         *reinterpret_cast<long long *>(&dst8p[x]) = _mm_cvtsi128_si64(dstu8);
                     }
@@ -576,7 +576,7 @@ static void VS_CC BilateralFree(
 }
 
 static void VS_CC BilateralCreate(
-    const VSMap *in, VSMap *out, void *userData, 
+    const VSMap *in, VSMap *out, void *userData,
     VSCore *core, const VSAPI *vsapi) {
 
     auto d { std::make_unique<BilateralData>() };
@@ -589,11 +589,11 @@ static void VS_CC BilateralCreate(
         vsapi->freeNode(d->node);
     };
 
-    if (auto [bps, sample] = std::pair{ 
-            d->vi->format->bitsPerSample, 
-            d->vi->format->sampleType 
+    if (auto [bps, sample] = std::pair{
+            d->vi->format->bitsPerSample,
+            d->vi->format->sampleType
         };
-        !isConstantFormat(d->vi) || 
+        !isConstantFormat(d->vi) ||
         (sample == stInteger && (bps != 8 && bps != 16)) ||
         (sample == stFloat && bps != 32)
     ) {
@@ -723,13 +723,13 @@ static void VS_CC BilateralCreate(
         int max_height { d->process[0] ? height : height >> ssh };
 
 #ifdef _WIN64
-        const std::string plugin_path = 
+        const std::string plugin_path =
             vsapi->getPluginPath(vsapi->getPluginById("com.wolframrhodium.bilateralgpu_rtc", core));
         std::string folder_path = plugin_path.substr(0, plugin_path.find_last_of('/'));
         int nvrtc_major, nvrtc_minor;
         checkNVRTCError(nvrtcVersion(&nvrtc_major, &nvrtc_minor));
         const int nvrtc_version = nvrtc_major * 10 + nvrtc_minor;
-        const std::string dll_path = 
+        const std::string dll_path =
             folder_path + "/nvrtc-builtins64_" + std::to_string(nvrtc_version) + ".dll";
         const Resource<HMODULE, FreeLibrary> dll_handle = LoadLibraryA(dll_path.c_str());
 #endif
@@ -784,10 +784,10 @@ static void VS_CC BilateralCreate(
                 int plane_height { plane == 0 ? height : height >> ssh };
 
                 const auto result = get_graphexec(
-                    d_dst, d_src, h_buffer, 
-                    plane_width, plane_height, d->d_pitch / sizeof(float), 
-                    radius[plane], 
-                    use_shared_memory, block_x, block_y, 
+                    d_dst, d_src, h_buffer,
+                    plane_width, plane_height, d->d_pitch / sizeof(float),
+                    radius[plane],
+                    use_shared_memory, block_x, block_y,
                     d->context, functions[plane]
                 );
 
@@ -799,18 +799,18 @@ static void VS_CC BilateralCreate(
             }
 
             d->resources.push_back(CUDA_Resource{
-                .d_src = std::move(d_src), 
-                .d_dst = std::move(d_dst), 
-                .h_buffer = std::move(h_buffer), 
-                .stream = std::move(stream), 
+                .d_src = std::move(d_src),
+                .d_dst = std::move(d_dst),
+                .h_buffer = std::move(h_buffer),
+                .stream = std::move(stream),
                 .graphexecs = std::move(graphexecs)
             });
         }
     }
 
     vsapi->createFilter(
-        in, out, "Bilateral", 
-        BilateralInit, BilateralGetFrame, BilateralFree, 
+        in, out, "Bilateral",
+        BilateralInit, BilateralGetFrame, BilateralFree,
         fmParallel, 0, d.release(), core);
 }
 
@@ -818,11 +818,11 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(
     VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin *plugin) {
 
     configFunc(
-        "com.wolframrhodium.bilateralgpu_rtc", "bilateralgpu_rtc", 
-        "Bilateral filter using CUDA (NVRTC)", 
+        "com.wolframrhodium.bilateralgpu_rtc", "bilateralgpu_rtc",
+        "Bilateral filter using CUDA (NVRTC)",
         VAPOURSYNTH_API_VERSION, 1, plugin);
 
-    registerFunc("Bilateral", 
+    registerFunc("Bilateral",
         "clip:clip;"
         "sigma_spatial:float[]:opt;"
         "sigma_color:float[]:opt;"

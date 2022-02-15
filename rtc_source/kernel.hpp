@@ -1,18 +1,18 @@
 const auto kernel_source_template = R"""(
 /*
-external variables: 
-    int width, int height, int stride, 
-    float sigma_spatial_scaled, float sigma_color_scaled, int radius, 
-    #define BLOCK_X (int), 
-    #define BLOCK_Y (int), 
+external variables:
+    int width, int height, int stride,
+    float sigma_spatial_scaled, float sigma_color_scaled, int radius,
+    #define BLOCK_X (int),
+    #define BLOCK_Y (int),
     bool use_shared_memory
 */
 
 __device__ static const dim3 BlockDim = dim3(BLOCK_X, BLOCK_Y);
 
 extern "C"
-__global__ 
-__launch_bounds__(BLOCK_X * BLOCK_Y) 
+__global__
+__launch_bounds__(BLOCK_X * BLOCK_Y)
 void bilateral(
     float * __restrict__ dst, const float * __restrict__ src
 ) {

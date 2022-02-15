@@ -4,17 +4,17 @@
 #define BLOCK_Y 8
 
 cudaGraphExec_t get_graphexec(
-    float * d_dst, float * d_src, float * h_buffer, 
-    int width, int height, int stride, 
-    float sigma_spatial, float sigma_color, int radius, 
+    float * d_dst, float * d_src, float * h_buffer,
+    int width, int height, int stride,
+    float sigma_spatial, float sigma_color, int radius,
     bool use_shared_memory);
 
 template <bool use_shared_memory>
-__global__ 
-__launch_bounds__(BLOCK_X * BLOCK_Y) 
+__global__
+__launch_bounds__(BLOCK_X * BLOCK_Y)
 static void bilateral(
-    float * __restrict__ dst, const float * __restrict__ src, 
-    int width, int height, int stride, 
+    float * __restrict__ dst, const float * __restrict__ src,
+    int width, int height, int stride,
     float sigma_spatial_scaled, float sigma_color_scaled, int radius) {
 
     const int x = threadIdx.x + blockIdx.x * BLOCK_X;
@@ -37,7 +37,7 @@ static void bilateral(
         }
 
         __syncthreads();
-        
+   
         if (x >= width || y >= height)
             return;
 
@@ -85,9 +85,9 @@ static void bilateral(
 }
 
 cudaGraphExec_t get_graphexec(
-    float * d_dst, float * d_src, float * h_buffer, 
-    int width, int height, int stride, 
-    float sigma_spatial_scaled, float sigma_color_scaled, int radius, 
+    float * d_dst, float * d_src, float * h_buffer,
+    int width, int height, int stride,
+    float sigma_spatial_scaled, float sigma_color_scaled, int radius,
     bool use_shared_memory
 ) {
 
@@ -114,9 +114,9 @@ cudaGraphExec_t get_graphexec(
     {
         cudaGraphNode_t dependencies[] { n_HtoD };
 
-        void * kernelArgs[] { 
-            &d_dst, &d_src, 
-            &width, &height, &stride, 
+        void * kernelArgs[] {
+            &d_dst, &d_src,
+            &width, &height, &stride,
             &sigma_spatial_scaled, &sigma_color_scaled, &radius
         };
 
@@ -127,21 +127,21 @@ cudaGraphExec_t get_graphexec(
         bool useSharedMem = use_shared_memory && sharedMemBytes < 48 * 1024;
 
         kernel_params.func = (
-            useSharedMem ? 
-            reinterpret_cast<void *>(bilateral<true>) : 
+            useSharedMem ?
+            reinterpret_cast<void *>(bilateral<true>) :
             reinterpret_cast<void *>(bilateral<false>)
         );
         kernel_params.blockDim = dim3(BLOCK_X, BLOCK_Y);
         kernel_params.gridDim = dim3(
-            (width - 1) / BLOCK_X + 1, 
+            (width - 1) / BLOCK_X + 1,
             (height - 1) / BLOCK_Y + 1
         );
         kernel_params.sharedMemBytes = useSharedMem ? sharedMemBytes : 0;
         kernel_params.kernelParams = kernelArgs;
 
         cudaGraphAddKernelNode(
-            &n_kernel, graph, 
-            dependencies, std::size(dependencies), 
+            &n_kernel, graph,
+            dependencies, std::size(dependencies),
             &kernel_params);
     }
 
@@ -159,8 +159,8 @@ cudaGraphExec_t get_graphexec(
         copy_params.kind = cudaMemcpyDeviceToHost;
 
         cudaGraphAddMemcpyNode(
-            &n_DtoH, graph, 
-            dependencies, std::size(dependencies), 
+            &n_DtoH, graph,
+            dependencies, std::size(dependencies),
             &copy_params);
     }
 
