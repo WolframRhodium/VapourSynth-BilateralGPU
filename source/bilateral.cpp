@@ -26,7 +26,7 @@ using namespace std::string_literals;
 extern cudaGraphExec_t get_graphexec(
     float * d_dst, float * d_src, float * h_buffer, 
     int width, int height, int stride, 
-    float sigma_spatial, float sigma_color, int radius, 
+    float sigma_spatial_scaled, float sigma_color_scaled, int radius, 
     bool use_shared_memory);
 
 #define checkError(expr) do {                                                               \
@@ -388,7 +388,7 @@ static void VS_CC BilateralCreate(
 
     int error;
 
-    float sigma_spatial[3];
+    std::array<float, 3> sigma_spatial;
     for (int i = 0; i < std::ssize(sigma_spatial); ++i) {
         sigma_spatial[i] = static_cast<float>(
             vsapi->propGetFloat(in, "sigma_spatial", i, &error));
@@ -413,7 +413,12 @@ static void VS_CC BilateralCreate(
         }
     }
 
-    float sigma_color[3];
+    std::array<float, 3> sigma_spatial_scaled;
+    for (int i = 0; i < std::ssize(sigma_spatial); ++i) {
+        sigma_spatial_scaled[i] = -0.5f / (sigma_spatial[i] * sigma_spatial[i]) * std::log2f(std::numbers::e_v<float>);
+    }
+
+    std::array<float, 3> sigma_color;
     for (int i = 0; i < std::ssize(sigma_color); ++i) {
         sigma_color[i] = static_cast<float>(
             vsapi->propGetFloat(in, "sigma_color", i, &error));
@@ -428,15 +433,17 @@ static void VS_CC BilateralCreate(
             return set_error("\"sigma_color\" must be non-negative");
         }
     }
+
+    std::array<float, 3> sigma_color_scaled;
     for (int i = 0; i < std::ssize(sigma_color); ++i) {
         if (sigma_color[i] < FLT_EPSILON) {
             d->process[i] = false;
         } else {
-            sigma_color[i] = -0.5f / (sigma_color[i] * sigma_color[i]);
+            sigma_color_scaled[i] = (-0.5f / (sigma_color[i] * sigma_color[i])) * std::log2f(std::numbers::e_v<float>);
         }
     }
 
-    int radius[3];
+    std::array<int, 3> radius;
     for (int i = 0; i < std::ssize(radius); ++i) {
         radius[i] = int64ToIntS(vsapi->propGetInt(in, "radius", i, &error));
 
@@ -445,10 +452,6 @@ static void VS_CC BilateralCreate(
         } else if (radius[i] <= 0) {
             return set_error("\"radius\" must be positive");
         }
-    }
-
-    for (int i = 0; i < std::ssize(sigma_spatial); ++i) {
-        sigma_spatial[i] = -0.5f / (sigma_spatial[i] * sigma_spatial[i]);
     }
 
     int device_id = int64ToIntS(vsapi->propGetInt(in, "device_id", 0, &error));
@@ -520,7 +523,7 @@ static void VS_CC BilateralCreate(
                 graphexecs[plane] = get_graphexec(
                     d_dst, d_src, h_buffer, 
                     plane_width, plane_height, d->d_pitch / sizeof(float), 
-                    sigma_spatial[plane], sigma_color[plane], radius[plane], 
+                    sigma_spatial_scaled[plane], sigma_color_scaled[plane], radius[plane], 
                     use_shared_memory
                 );
             }

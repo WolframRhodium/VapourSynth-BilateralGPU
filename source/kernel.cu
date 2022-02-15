@@ -15,7 +15,7 @@ __launch_bounds__(BLOCK_X * BLOCK_Y)
 static void bilateral(
     float * __restrict__ dst, const float * __restrict__ src, 
     int width, int height, int stride, 
-    float sigma_spatial, float sigma_color, int radius) {
+    float sigma_spatial_scaled, float sigma_color_scaled, int radius) {
 
     const int x = threadIdx.x + blockIdx.x * BLOCK_X;
     const int y = threadIdx.y + blockIdx.y * BLOCK_Y;
@@ -54,7 +54,7 @@ static void bilateral(
                 float space = cy * cy + cx * cx;
                 float range = (value - center) * (value - center);
 
-                float weight = expf(space * sigma_spatial + range * sigma_color);
+                float weight = exp2f(space * sigma_spatial_scaled + range * sigma_color_scaled);
 
                 num += weight * value;
                 den += weight;
@@ -73,7 +73,7 @@ static void bilateral(
                 float space = (y - cy) * (y - cy) + (x - cx) * (x - cx);
                 float range = (value - center) * (value - center);
 
-                float weight = expf(space * sigma_spatial + range * sigma_color);
+                float weight = exp2f(space * sigma_spatial_scaled + range * sigma_color_scaled);
 
                 num += weight * value;
                 den += weight;
@@ -87,7 +87,7 @@ static void bilateral(
 cudaGraphExec_t get_graphexec(
     float * d_dst, float * d_src, float * h_buffer, 
     int width, int height, int stride, 
-    float sigma_spatial, float sigma_color, int radius, 
+    float sigma_spatial_scaled, float sigma_color_scaled, int radius, 
     bool use_shared_memory
 ) {
 
@@ -117,7 +117,7 @@ cudaGraphExec_t get_graphexec(
         void * kernelArgs[] { 
             &d_dst, &d_src, 
             &width, &height, &stride, 
-            &sigma_spatial, &sigma_color, &radius
+            &sigma_spatial_scaled, &sigma_color_scaled, &radius
         };
 
         cudaKernelNodeParams kernel_params {};

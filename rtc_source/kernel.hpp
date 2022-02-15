@@ -2,7 +2,7 @@ const auto kernel_source_template = R"""(
 /*
 external variables: 
     int width, int height, int stride, 
-    float sigma_spatial, float sigma_color, int radius, 
+    float sigma_spatial_scaled, float sigma_color_scaled, int radius, 
     #define BLOCK_X (int), 
     #define BLOCK_Y (int), 
     bool use_shared_memory
@@ -53,7 +53,7 @@ void bilateral(
                 float space = cy * cy + cx * cx;
                 float range = (value - center) * (value - center);
 
-                float weight = expf(space * sigma_spatial + range * sigma_color);
+                float weight = exp2f(space * sigma_spatial_scaled + range * sigma_color_scaled);
 
                 num += weight * value;
                 den += weight;
@@ -74,7 +74,7 @@ void bilateral(
                 float space = (y - cy) * (y - cy) + (x - cx) * (x - cx);
                 float range = (value - center) * (value - center);
 
-                float weight = expf(space * sigma_spatial + range * sigma_color);
+                float weight = exp2f(space * sigma_spatial_scaled + range * sigma_color_scaled);
 
                 num += weight * value;
                 den += weight;

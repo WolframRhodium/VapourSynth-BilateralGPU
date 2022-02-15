@@ -6,6 +6,7 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <numbers>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -156,9 +157,9 @@ struct BilateralData {
 };
 
 static std::variant<CUmodule, std::string> compile(
-    int width, int height, int stride, 
-    float sigma_spatial, float sigma_color, int radius, 
-    bool use_shared_memory, int block_x, int block_y, 
+    int width, int height, int stride,
+    float sigma_spatial_scaled, float sigma_color_scaled, int radius,
+    bool use_shared_memory, int block_x, int block_y,
     CUdevice device
 ) noexcept {
 
@@ -172,8 +173,8 @@ static std::variant<CUmodule, std::string> compile(
         << "__device__ static const int width = " << width << ";\n"
         << "__device__ static const int height = " << height << ";\n"
         << "__device__ static const int stride = " << stride << ";\n"
-        << "__device__ static const float sigma_spatial = " << sigma_spatial << ";\n"
-        << "__device__ static const float sigma_color = " << sigma_color << ";\n"
+        << "__device__ static const float sigma_spatial_scaled = " << sigma_spatial_scaled << ";\n"
+        << "__device__ static const float sigma_color_scaled = " << sigma_color_scaled << ";\n"
         << "__device__ static const int radius = " << radius << ";\n"
         << "__device__ static const bool use_shared_memory = " << use_shared_memory << ";\n"
         << "#define BLOCK_X " << block_x << "\n"
@@ -602,7 +603,7 @@ static void VS_CC BilateralCreate(
 
     int error;
 
-    float sigma_spatial[3];
+    std::array<float, 3> sigma_spatial;
     for (int i = 0; i < std::ssize(sigma_spatial); ++i) {
         sigma_spatial[i] = static_cast<float>(
             vsapi->propGetFloat(in, "sigma_spatial", i, &error));
@@ -627,7 +628,12 @@ static void VS_CC BilateralCreate(
         }
     }
 
-    float sigma_color[3];
+    std::array<float, 3> sigma_spatial_scaled;
+    for (int i = 0; i < std::ssize(sigma_spatial); ++i) {
+        sigma_spatial_scaled[i] = (-0.5f / (sigma_spatial[i] * sigma_spatial[i])) * std::log2f(std::numbers::e_v<float>);
+    }
+
+    std::array<float, 3> sigma_color;
     for (int i = 0; i < std::ssize(sigma_color); ++i) {
         sigma_color[i] = static_cast<float>(
             vsapi->propGetFloat(in, "sigma_color", i, &error));
@@ -642,15 +648,17 @@ static void VS_CC BilateralCreate(
             return set_error("\"sigma_color\" must be non-negative");
         }
     }
+
+    std::array<float, 3> sigma_color_scaled;
     for (int i = 0; i < std::ssize(sigma_color); ++i) {
         if (sigma_color[i] < FLT_EPSILON) {
             d->process[i] = false;
         } else {
-            sigma_color[i] = -0.5f / (sigma_color[i] * sigma_color[i]);
+            sigma_color_scaled[i] = (-0.5f / (sigma_color[i] * sigma_color[i])) * std::log2f(std::numbers::e_v<float>);
         }
     }
 
-    int radius[3];
+    std::array<int, 3> radius;
     for (int i = 0; i < std::ssize(radius); ++i) {
         radius[i] = int64ToIntS(vsapi->propGetInt(in, "radius", i, &error));
 
@@ -659,10 +667,6 @@ static void VS_CC BilateralCreate(
         } else if (radius[i] <= 0) {
             return set_error("\"radius\" must be positive");
         }
-    }
-
-    for (int i = 0; i < std::ssize(sigma_spatial); ++i) {
-        sigma_spatial[i] = -0.5f / (sigma_spatial[i] * sigma_spatial[i]);
     }
 
     // CUDA related
@@ -760,9 +764,9 @@ static void VS_CC BilateralCreate(
 
                 if (i == 0) {
                     const auto result = compile(
-                        width, height, d->d_pitch / sizeof(float), 
-                        sigma_spatial[plane], sigma_color[plane], radius[plane], 
-                        use_shared_memory, block_x, block_y, 
+                        width, height, d->d_pitch / sizeof(float),
+                        sigma_spatial_scaled[plane], sigma_color_scaled[plane], radius[plane],
+                        use_shared_memory, block_x, block_y,
                         d->device
                     );
 
