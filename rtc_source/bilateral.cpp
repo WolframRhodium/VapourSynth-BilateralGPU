@@ -630,7 +630,7 @@ static void VS_CC BilateralCreate(
 
     std::array<float, 3> sigma_spatial_scaled;
     for (int i = 0; i < std::ssize(sigma_spatial); ++i) {
-        sigma_spatial_scaled[i] = (-0.5f / (sigma_spatial[i] * sigma_spatial[i])) * std::log2f(std::numbers::e_v<float>);
+        sigma_spatial_scaled[i] = (-0.5f / (sigma_spatial[i] * sigma_spatial[i])) * std::numbers::log2e_v<float>;
     }
 
     std::array<float, 3> sigma_color;
@@ -654,7 +654,7 @@ static void VS_CC BilateralCreate(
         if (sigma_color[i] < FLT_EPSILON) {
             d->process[i] = false;
         } else {
-            sigma_color_scaled[i] = (-0.5f / (sigma_color[i] * sigma_color[i])) * std::log2f(std::numbers::e_v<float>);
+            sigma_color_scaled[i] = (-0.5f / (sigma_color[i] * sigma_color[i])) * std::numbers::log2e_v<float>;
         }
     }
 
