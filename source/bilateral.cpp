@@ -6,6 +6,7 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <numbers>
 #include <string>
 #include <thread>
 #include <type_traits>
