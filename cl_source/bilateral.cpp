@@ -8,17 +8,16 @@
 #include <iostream>
 #include <memory>
 #include <numbers>
-#include <source_location>
 #include <sstream>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 #if !defined(__cpp_lib_atomic_wait)
 #  include <chrono>
+#  include <thread>
 #endif // !defined(__cpp_lib_atomic_wait)
 
 #define CL_TARGET_OPENCL_VERSION 120
