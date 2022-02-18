@@ -307,11 +307,11 @@ private:
 
         for (const auto platform : platforms) {
             cl_uint count;
-            checkError(clGetDeviceIDs(platform, CL_DEVICE_TYPE_DEFAULT, 0, nullptr, &count));
+            checkError(clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, 0, nullptr, &count));
 
             for (cl_uint i = 0; i < count; ++i) {
                 cl_device_id device;
-                checkError(clGetDeviceIDs(platform, CL_DEVICE_TYPE_DEFAULT, 1, &device, nullptr));
+                checkError(clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, 1, &device, nullptr));
                 devices.emplace_back(platform, device);
             }
         }
@@ -329,7 +329,7 @@ private:
         cl_platform_id platform,
         cl_device_id device
     ) noexcept {
-        return CALL(clCreateContext, nullptr, 1, &device, nullptr, nullptr); // TODO
+        return CALL(clCreateContext, nullptr, 1, &device, nullptr, nullptr);
     }
 
     static inline cl_program init_program(
