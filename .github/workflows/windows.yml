@@ -1,6 +1,17 @@
 name: Build (Windows)
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    paths:
+      - 'source/*'
+      - 'rtc_source/*'
+      - 'cl_source/*'
+      - '.github/workflows/windows.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'which tag to upload to'
+        default: ''
 
 jobs:
   build-windows:
@@ -64,4 +75,14 @@ jobs:
       with:
         name: BilateralGPU-Windows
         path: install/bin/*.dll
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag != ''
+      with:
+        tag_name: ${{ github.event.inputs.tag }}
+        files: install/bin/*
+        fail_on_unmatched_files: true
+        generate_release_notes: false
+        prerelease: true
 

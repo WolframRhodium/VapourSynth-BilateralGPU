@@ -1,6 +1,13 @@
 name: Build (Linux)
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    paths:
+      - 'source/*'
+      - 'rtc_source/*'
+      - 'cl_source/*'
+      - '.github/workflows/linux.yml'
+  workflow_dispatch:
 
 jobs:
   build-linux:
@@ -19,13 +26,13 @@ jobs:
     - name: Setup Ninja
       run: pip install ninja
 
-    - name: Setup CUDA
+    - name: Setup CUDA and OpenCL
       run: |
         wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin
         sudo mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600
         sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/7fa2af80.pub
         sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /"
-        sudo apt-get install -y cuda-nvcc-11-6 cuda-cudart-dev-11-6 cuda-nvrtc-dev-11-6
+        sudo apt-get install -y cuda-nvcc-11-6 cuda-cudart-dev-11-6 cuda-nvrtc-dev-11-6 ocl-icd-opencl-dev
         echo "PATH=/usr/local/cuda/bin${PATH:+:${PATH}}" >> $GITHUB_ENV
         echo "CUDA_PATH=/usr/local/cuda" >> $GITHUB_ENV
         echo "LD_LIBRARY_PATH=/usr/local/cuda/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" >> $GITHUB_ENV
@@ -53,9 +60,9 @@ jobs:
     - name: Install
       run: cmake --install build --prefix install
 
-    - name: Upload
-      uses: actions/upload-artifact@v2
-      with:
-        name: BilateralGPU-Linux
-        path: install/lib/*.so
+    # - name: Upload
+    #   uses: actions/upload-artifact@v2
+    #   with:
+    #     name: BilateralGPU-Linux
+    #     path: install/lib/*.so
 
