@@ -29,6 +29,7 @@
 #include <VapourSynth.h>
 #include <VSHelper.h>
 
+#include <config.h>
 #include "kernel.hpp"
 
 #ifdef _MSC_VER
@@ -290,7 +291,7 @@ static std::variant<CUgraphExec, std::string> get_graphexec(
             (2 * radius + block_y) * (2 * radius + block_x) * sizeof(float) :
             0
         );
-  
+
         CUDA_KERNEL_NODE_PARAMS node_params {
             .func = function,
             .gridDimX = static_cast<unsigned int>((width - 1) / block_x + 1),
@@ -833,4 +834,9 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(
         "block_x:int:opt;"
         "block_y:int:opt;",
         BilateralCreate, nullptr, plugin);
+
+    auto getVersion = [](const VSMap *, VSMap * out, void *, VSCore *, const VSAPI *vsapi) {
+        vsapi->propSetData(out, "version", VERSION, -1, paReplace);
+    };
+    registerFunc("Version", "", getVersion, nullptr, plugin);
 }

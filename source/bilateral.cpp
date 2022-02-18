@@ -22,6 +22,8 @@
 #include <VapourSynth.h>
 #include <VSHelper.h>
 
+#include <config.h>
+
 using namespace std::string_literals;
 
 extern cudaGraphExec_t get_graphexec(
@@ -561,4 +563,9 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(
         "num_streams:int:opt;"
         "use_shared_memory:int:opt;",
         BilateralCreate, nullptr, plugin);
+
+    auto getVersion = [](const VSMap *, VSMap * out, void *, VSCore *, const VSAPI *vsapi) {
+        vsapi->propSetData(out, "version", VERSION, -1, paReplace);
+    };
+    registerFunc("Version", "", getVersion, nullptr, plugin);
 }
