@@ -82,11 +82,11 @@ jobs:
         cd install
 
         mkdir VapourSynth-BilateralGPU-${{ github.event.inputs.tag }}
-        xcopy bin\bilateralgpu.dll VapourSynth-BilateralGPU-${{ github.event.inputs.tag }} /f
+        echo f | xcopy bin\bilateralgpu.dll VapourSynth-BilateralGPU-${{ github.event.inputs.tag }}\BilateralGPU.dll /f
         7z a -t7z -mx=9 ../VapourSynth-BilateralGPU-${{ github.event.inputs.tag }}.7z VapourSynth-BilateralGPU-${{ github.event.inputs.tag }}
 
         mkdir VapourSynth-BilateralGPU_RTC-${{ github.event.inputs.tag }}
-        xcopy bin\bilateralgpu_rtc.dll VapourSynth-BilateralGPU_RTC-${{ github.event.inputs.tag }} /f
+        echo f | xcopy bin\bilateralgpu_rtc.dll VapourSynth-BilateralGPU_RTC-${{ github.event.inputs.tag }}\BilateralGPU_RTC.dll /f
         7z a -t7z -mx=9 ../VapourSynth-BilateralGPU_RTC-${{ github.event.inputs.tag }}.7z VapourSynth-BilateralGPU_RTC-${{ github.event.inputs.tag }}
 
     - name: Release
