@@ -290,7 +290,7 @@ static std::variant<CUgraphExec, std::string> get_graphexec(
             (2 * radius + block_y) * (2 * radius + block_x) * sizeof(float) :
             0
         );
-  
+
         CUDA_KERNEL_NODE_PARAMS node_params {
             .func = function,
             .gridDimX = static_cast<unsigned int>((width - 1) / block_x + 1),
@@ -330,7 +330,11 @@ static std::variant<CUgraphExec, std::string> get_graphexec(
     }
 
     CUgraphExec graphexec;
+#if CUDA_VERSION >= 12000
+    checkError(cuGraphInstantiate(&graphexec, graph, 0));
+#else // CUDA_VERSION >= 12000
     checkError(cuGraphInstantiate(&graphexec, graph, nullptr, nullptr, 0));
+#endif // CUDA_VERSION >= 12000
 
     return graphexec;
 }
