@@ -8,7 +8,6 @@
 #include <mutex>
 #include <numbers>
 #include <string>
-#include <thread>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -22,13 +21,15 @@
 #include <VapourSynth.h>
 #include <VSHelper.h>
 
+#include <config.h>
+
 using namespace std::string_literals;
 
 extern cudaGraphExec_t get_graphexec(
     float * d_dst, float * d_src, float * h_buffer,
     int width, int height, int stride,
     float sigma_spatial_scaled, float sigma_color_scaled, int radius,
-    bool use_shared_memory);
+    bool use_shared_memory, bool has_ref);
 
 #define checkError(expr) do {                                                               \
     cudaError_t __err = expr;                                                               \
@@ -117,6 +118,7 @@ struct CUDA_Resource {
 
 struct BilateralData {
     VSNodeRef * node;
+    VSNodeRef * ref_node;
     const VSVideoInfo * vi;
 
     // stored in graphexec
@@ -148,8 +150,15 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
 
     if (activationReason == arInitial) {
         vsapi->requestFrameFilter(n, d->node, frameCtx);
+        if (d->ref_node) {
+            vsapi->requestFrameFilter(n, d->ref_node, frameCtx);
+        }
     } else if (activationReason == arAllFramesReady) {
         const VSFrameRef * src = vsapi->getFrameFilter(n, d->node, frameCtx);
+        const VSFrameRef * ref = nullptr;
+        if (d->ref_node) {
+            ref = vsapi->getFrameFilter(n, d->ref_node, frameCtx);
+        }
 
         const int pl[] = { 0, 1, 2 };
         const VSFrameRef * fr[] = {
@@ -173,6 +182,9 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
             d->resources_lock.unlock();
             d->semaphore.release();
             vsapi->setFilterError(("BilateralGPU: " + error_message).c_str(), frameCtx);
+            if (d->ref_node) {
+                vsapi->freeFrame(ref);
+            }
             vsapi->freeFrame(src);
             return nullptr;
         };
@@ -197,66 +209,86 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
             int d_pitch = d->d_pitch;
             int d_stride = d_pitch / sizeof(float);
 
+            const uint8_t * refp = nullptr;
+            if (d->ref_node) {
+                refp = vsapi->getReadPtr(ref, plane);
+            }
+
             if (bps == 32) {
                 vs_bitblt(h_buffer, d_pitch, srcp, s_pitch, width_bytes, height);
+                if (d->ref_node) {
+                    vs_bitblt(&h_buffer[s_stride * height], d_pitch, refp, s_pitch, width_bytes, height);
+                }
             } else if (bps == 16) {
                 float * h_bufferp = h_buffer;
-                const uint16_t * src16p = reinterpret_cast<const uint16_t *>(srcp);
 
-                for (int y = 0; y < height; ++y) {
+                const auto load = [width, height, &h_bufferp, s_stride, d_stride](const uint16_t * srcp) {
+                    for (int y = 0; y < height; ++y) {
 #ifdef __AVX2__
-                    // VideoFrame is at least 32 bytes padded
-                    for (int x = 0; x < width; x += 8) {
-                        __m128i src = _mm_load_si128(
-                            reinterpret_cast<const __m128i *>(&src16p[x]));
-                        __m256 srcf = _mm256_cvtepi32_ps(_mm256_cvtepu16_epi32(src));
-                        srcf = _mm256_mul_ps(srcf,
-                            _mm256_set1_ps(static_cast<float>(1.0 / 65535.0)));
-                        _mm256_stream_ps(&h_bufferp[x], srcf);
-                    }
+                        // VideoFrame is at least 32 bytes padded
+                        for (int x = 0; x < width; x += 8) {
+                            __m128i src = _mm_load_si128(
+                                reinterpret_cast<const __m128i *>(&srcp[x]));
+                            __m256 srcf = _mm256_cvtepi32_ps(_mm256_cvtepu16_epi32(src));
+                            srcf = _mm256_mul_ps(srcf,
+                                _mm256_set1_ps(static_cast<float>(1.0 / 65535.0)));
+                            _mm256_stream_ps(&h_bufferp[x], srcf);
+                        }
 #else
-                    for (int x = 0; x < width; ++x) {
-                        h_bufferp[x] = static_cast<float>(src16p[x]) / 65535.0f;
-                    }
+                        for (int x = 0; x < width; ++x) {
+                            h_bufferp[x] = static_cast<float>(src16p[x]) / 65535.0f;
+                        }
 #endif
 
-                    h_bufferp += d_stride;
-                    src16p += s_stride;
+                        h_bufferp += d_stride;
+                        srcp += s_stride;
+                    }
+                };
+
+                load(reinterpret_cast<const uint16_t *>(srcp));
+                if (d->ref_node) {
+                    load(reinterpret_cast<const uint16_t *>(refp));
                 }
             } else if (bps == 8) {
                 float * h_bufferp = h_buffer;
-                const uint8_t * src8p = srcp;
 
-                for (int y = 0; y < height; ++y) {
+                const auto load = [width, height, &h_bufferp, s_stride, d_stride](const uint8_t * srcp) {
+                    for (int y = 0; y < height; ++y) {
 #ifdef __AVX2__
                     // VideoFrame is at least 32 bytes padded
-                    for (int x = 0; x < width; x += 16) {
-                        __m128i src = _mm_load_si128(
-                            reinterpret_cast<const __m128i *>(&src8p[x]));
-                        __m256 srcf_lo = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(src));
-                        srcf_lo = _mm256_mul_ps(
-                            srcf_lo,
-                            _mm256_set1_ps(static_cast<float>(1.0 / 255.0)));
-                        _mm256_stream_ps(&h_bufferp[x], srcf_lo);
+                        for (int x = 0; x < width; x += 16) {
+                            __m128i src = _mm_load_si128(
+                                reinterpret_cast<const __m128i *>(&srcp[x]));
+                            __m256 srcf_lo = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(src));
+                            srcf_lo = _mm256_mul_ps(
+                                srcf_lo,
+                                _mm256_set1_ps(static_cast<float>(1.0 / 255.0)));
+                            _mm256_stream_ps(&h_bufferp[x], srcf_lo);
 
-                        __m256 srcf_hi = _mm256_cvtepi32_ps(
-                            _mm256_cvtepu8_epi32(
-                                _mm_castps_si128(
-                                    _mm_permute_ps(
-                                        _mm_castsi128_ps(src),
-                                        0b01'00'11'10))));
-                        srcf_hi = _mm256_mul_ps(srcf_hi,
-                            _mm256_set1_ps(static_cast<float>(1.0 / 255.0)));
-                        _mm256_stream_ps(&h_bufferp[x + 8], srcf_hi);
-                    }
+                            __m256 srcf_hi = _mm256_cvtepi32_ps(
+                                _mm256_cvtepu8_epi32(
+                                    _mm_castps_si128(
+                                        _mm_permute_ps(
+                                            _mm_castsi128_ps(src),
+                                            0b01'00'11'10))));
+                            srcf_hi = _mm256_mul_ps(srcf_hi,
+                                _mm256_set1_ps(static_cast<float>(1.0 / 255.0)));
+                            _mm256_stream_ps(&h_bufferp[x + 8], srcf_hi);
+                        }
 #else
-                    for (int x = 0; x < width; ++x) {
-                        h_bufferp[x] = static_cast<float>(src8p[x]) / 255.f;
-                    }
+                        for (int x = 0; x < width; ++x) {
+                            h_bufferp[x] = static_cast<float>(src8p[x]) / 255.f;
+                        }
 #endif
 
-                    h_bufferp += d_stride;
-                    src8p += s_stride;
+                        h_bufferp += d_stride;
+                        srcp += s_stride;
+                    }
+                };
+
+                load(srcp);
+                if (d->ref_node) {
+                    load(reinterpret_cast<const uint8_t *>(refp));
                 }
             }
 
@@ -341,6 +373,9 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
         d->resources_lock.unlock();
         d->semaphore.release();
 
+        if (d->ref_node) {
+            vsapi->freeFrame(ref);
+        }
         vsapi->freeFrame(src);
 
         return dst;
@@ -354,6 +389,9 @@ static void VS_CC BilateralFree(
 
     BilateralData * d = static_cast<BilateralData *>(instanceData);
 
+    if (d->ref_node) {
+        vsapi->freeNode(d->ref_node);
+    }
     vsapi->freeNode(d->node);
 
     cudaSetDevice(d->device_id);
@@ -370,8 +408,16 @@ static void VS_CC BilateralCreate(
     d->node = vsapi->propGetNode(in, "clip", 0, nullptr);
     d->vi = vsapi->getVideoInfo(d->node);
 
+    int error;
+
+    d->ref_node = vsapi->propGetNode(in, "ref", 0, &error);
+    bool has_ref = d->ref_node != nullptr;
+
     auto set_error = [&](const std::string & error_message) {
         vsapi->setError(out, ("BilateralGPU: " + error_message).c_str());
+        if (has_ref) {
+            vsapi->freeNode(d->ref_node);
+        }
         vsapi->freeNode(d->node);
     };
 
@@ -387,7 +433,10 @@ static void VS_CC BilateralCreate(
         return set_error("only constant format 8/16bit int or 32bit float input supported");
     }
 
-    int error;
+    const auto ref_vi = vsapi->getVideoInfo(d->ref_node);
+    if (d->ref_node && (!isSameFormat(d->vi, ref_vi) || d->vi->numFrames != ref_vi->numFrames)) {
+        return set_error("\"ref\" must be of the same format as \"clip\"");
+    }
 
     std::array<float, 3> sigma_spatial;
     for (int i = 0; i < std::ssize(sigma_spatial); ++i) {
@@ -497,17 +546,17 @@ static void VS_CC BilateralCreate(
             if (i == 0) {
                 size_t d_pitch;
                 checkError(cudaMallocPitch(
-                    &d_src.data, &d_pitch, max_width * sizeof(float), max_height));
+                    &d_src.data, &d_pitch, max_width * sizeof(float), (1 + has_ref) * max_height));
                 d->d_pitch = static_cast<int>(d_pitch);
             } else {
-                checkError(cudaMalloc(&d_src.data, max_height * d->d_pitch));
+                checkError(cudaMalloc(&d_src.data, (1 + has_ref) * max_height * d->d_pitch));
             }
 
             Resource<float *, cudaFree> d_dst {};
             checkError(cudaMalloc(&d_dst.data, max_height * d->d_pitch));
 
             Resource<float *, cudaFreeHost> h_buffer {};
-            checkError(cudaMallocHost(&h_buffer.data, max_height * d->d_pitch));
+            checkError(cudaMallocHost(&h_buffer.data, (1 + has_ref) * max_height * d->d_pitch));
 
             Resource<cudaStream_t, cudaStreamDestroy> stream {};
             checkError(cudaStreamCreateWithFlags(&stream.data, cudaStreamNonBlocking));
@@ -525,7 +574,7 @@ static void VS_CC BilateralCreate(
                     d_dst, d_src, h_buffer,
                     plane_width, plane_height, d->d_pitch / sizeof(float),
                     sigma_spatial_scaled[plane], sigma_color_scaled[plane], radius[plane],
-                    use_shared_memory
+                    use_shared_memory, has_ref
                 );
             }
 
@@ -559,6 +608,12 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(
         "radius:int[]:opt;"
         "device_id:int:opt;"
         "num_streams:int:opt;"
-        "use_shared_memory:int:opt;",
+        "use_shared_memory:int:opt;"
+        "ref:clip:opt;",
         BilateralCreate, nullptr, plugin);
+
+    auto getVersion = [](const VSMap *, VSMap * out, void *, VSCore *, const VSAPI *vsapi) {
+        vsapi->propSetData(out, "version", VERSION, -1, paReplace);
+    };
+    registerFunc("Version", "", getVersion, nullptr, plugin);
 }

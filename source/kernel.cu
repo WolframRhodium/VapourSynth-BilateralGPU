@@ -9,7 +9,7 @@ cudaGraphExec_t get_graphexec(
     float sigma_spatial, float sigma_color, int radius,
     bool use_shared_memory);
 
-template <bool use_shared_memory>
+template <bool use_shared_memory, bool has_ref>
 __global__
 __launch_bounds__(BLOCK_X * BLOCK_Y)
 static void bilateral(
@@ -20,13 +20,12 @@ static void bilateral(
     const int x = threadIdx.x + blockIdx.x * BLOCK_X;
     const int y = threadIdx.y + blockIdx.y * BLOCK_Y;
 
-
     float num {};
     float den {};
 
     if constexpr (use_shared_memory) {
         extern __shared__ float buffer[
-            /* (2 * radius + BLOCK_Y) * (2 * radius + BLOCK_X) */];
+            /* (1 + has_ref) * (2 * radius + BLOCK_Y) * (2 * radius + BLOCK_X) */];
 
         for (int cy = threadIdx.y; cy < 2 * radius + BLOCK_Y; cy += BLOCK_Y) {
             int sy = min(max(cy - static_cast<int>(threadIdx.y) - radius + y, 0), height - 1);
@@ -36,12 +35,25 @@ static void bilateral(
             }
         }
 
+        if constexpr (has_ref) {
+            for (int cy = threadIdx.y; cy < 2 * radius + BLOCK_Y; cy += BLOCK_Y) {
+                int sy = min(max(cy - static_cast<int>(threadIdx.y) - radius + y, 0), height - 1);
+                for (int cx = threadIdx.x; cx < 2 * radius + BLOCK_X; cx += BLOCK_X) {
+                    int sx = min(max(cx - static_cast<int>(threadIdx.x) - radius + x, 0), width - 1);
+                    buffer[(2 * radius + BLOCK_Y + cy) * (2 * radius + BLOCK_X) + cx] = src[(height + sy) * stride + sx];
+                }
+            }
+        }
+
         __syncthreads();
    
         if (x >= width || y >= height)
             return;
 
-        const float center = src[y * stride + x];
+        const float center = buffer[
+            (has_ref * (2 * radius + BLOCK_Y) + radius + threadIdx.y) * (2 * radius + BLOCK_X) + 
+            radius + threadIdx.x
+        ]; // src[(has_ref * height + y) * stride + x];
 
         for (int cy = -radius; cy <= radius; ++cy) {
             int sy = cy + radius + threadIdx.y;
@@ -49,12 +61,16 @@ static void bilateral(
             for (int cx = -radius; cx <= radius; ++cx) {
                 int sx = cx + radius + threadIdx.x;
 
-                float value = buffer[sy * (2 * radius + BLOCK_X) + sx];
+                float value = buffer[(has_ref * (2 * radius + BLOCK_Y) + sy) * (2 * radius + BLOCK_X) + sx];
 
                 float space = cy * cy + cx * cx;
                 float range = (value - center) * (value - center);
 
                 float weight = exp2f(space * sigma_spatial_scaled + range * sigma_color_scaled);
+
+                if constexpr (has_ref) {
+                    value = buffer[sy * (2 * radius + BLOCK_X) + sx];
+                }
 
                 num += weight * value;
                 den += weight;
@@ -64,16 +80,20 @@ static void bilateral(
         if (x >= width || y >= height)
             return;
 
-        const float center = src[y * stride + x];
+        const float center = src[(has_ref * height + y) * stride + x];
 
         for (int cy = max(y - radius, 0); cy <= min(y + radius, height - 1); ++cy) {
             for (int cx = max(x - radius, 0); cx <= min(x + radius, width - 1); ++cx) {
-                const float value = src[cy * stride + cx];
+                float value = src[(has_ref * height + cy) * stride + cx];
 
                 float space = (y - cy) * (y - cy) + (x - cx) * (x - cx);
                 float range = (value - center) * (value - center);
 
                 float weight = exp2f(space * sigma_spatial_scaled + range * sigma_color_scaled);
+
+                if constexpr (has_ref) {
+                    value = src[cy * stride + cx];
+                }
 
                 num += weight * value;
                 den += weight;
@@ -88,7 +108,7 @@ cudaGraphExec_t get_graphexec(
     float * d_dst, float * d_src, float * h_buffer,
     int width, int height, int stride,
     float sigma_spatial_scaled, float sigma_color_scaled, int radius,
-    bool use_shared_memory
+    bool use_shared_memory, bool has_ref
 ) {
 
     size_t pitch { stride * sizeof(float) };
@@ -100,11 +120,11 @@ cudaGraphExec_t get_graphexec(
     {
         cudaMemcpy3DParms copy_params {};
         copy_params.srcPtr = make_cudaPitchedPtr(
-            h_buffer, pitch, width, height);
+            h_buffer, pitch, width, height * (1 + has_ref));
         copy_params.dstPtr = make_cudaPitchedPtr(
-            d_src, pitch, width, height);
+            d_src, pitch, width, height * (1 + has_ref));
         copy_params.extent = make_cudaExtent(
-            width * sizeof(float), height, 1);
+            width * sizeof(float), height * (1 + has_ref), 1);
         copy_params.kind = cudaMemcpyHostToDevice;
 
         cudaGraphAddMemcpyNode(&n_HtoD, graph, nullptr, 0, &copy_params);
@@ -123,13 +143,19 @@ cudaGraphExec_t get_graphexec(
         cudaKernelNodeParams kernel_params {};
 
         auto sharedMemBytes = static_cast<unsigned int>(
-            (2 * radius + BLOCK_Y) * (2 * radius + BLOCK_X) * sizeof(float));
+            (1 + has_ref) * (2 * radius + BLOCK_Y) * (2 * radius + BLOCK_X) * sizeof(float));
         bool useSharedMem = use_shared_memory && sharedMemBytes < 48 * 1024;
 
         kernel_params.func = (
             useSharedMem ?
-            reinterpret_cast<void *>(bilateral<true>) :
-            reinterpret_cast<void *>(bilateral<false>)
+            (has_ref ? 
+                reinterpret_cast<void *>(bilateral<true, true>) : 
+                reinterpret_cast<void *>(bilateral<true, false>)
+            ) :
+            (has_ref ? 
+                reinterpret_cast<void *>(bilateral<false, true>) : 
+                reinterpret_cast<void *>(bilateral<false, false>)
+            )
         );
         kernel_params.blockDim = dim3(BLOCK_X, BLOCK_Y);
         kernel_params.gridDim = dim3(
