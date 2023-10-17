@@ -9,7 +9,6 @@
 #include <numbers>
 #include <sstream>
 #include <string>
-#include <thread>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -18,10 +17,6 @@
 #include <cuda.h>
 #include <nvrtc.h>
 
-#ifdef _WIN64
-#   include <windows.h>
-#endif
-
 #ifdef __AVX2__
 #include <immintrin.h>
 #endif
@@ -29,6 +24,7 @@
 #include <VapourSynth.h>
 #include <VSHelper.h>
 
+#include <config.h>
 #include "kernel.hpp"
 
 #ifdef _MSC_VER
@@ -137,6 +133,7 @@ struct CUDA_Resource {
 
 struct BilateralData {
     VSNodeRef * node;
+    VSNodeRef * ref_node;
     const VSVideoInfo * vi;
 
     // stored in graphexec
@@ -159,7 +156,7 @@ struct BilateralData {
 static std::variant<CUmodule, std::string> compile(
     int width, int height, int stride,
     float sigma_spatial_scaled, float sigma_color_scaled, int radius,
-    bool use_shared_memory, int block_x, int block_y,
+    bool use_shared_memory, int block_x, int block_y, bool has_ref,
     CUdevice device
 ) noexcept {
 
@@ -170,15 +167,16 @@ static std::variant<CUmodule, std::string> compile(
     std::ostringstream kernel_source_io;
     kernel_source_io
         << std::hexfloat << std::boolalpha
-        << "__device__ static const int width = " << width << ";\n"
-        << "__device__ static const int height = " << height << ";\n"
-        << "__device__ static const int stride = " << stride << ";\n"
-        << "__device__ static const float sigma_spatial_scaled = " << sigma_spatial_scaled << ";\n"
-        << "__device__ static const float sigma_color_scaled = " << sigma_color_scaled << ";\n"
-        << "__device__ static const int radius = " << radius << ";\n"
-        << "__device__ static const bool use_shared_memory = " << use_shared_memory << ";\n"
+        << "#define width " << width << "\n"
+        << "#define height " << height << "\n"
+        << "#define stride " << stride << "\n"
+        << "#define sigma_spatial_scaled ((float) " << sigma_spatial_scaled << ")\n"
+        << "#define sigma_color_scaled ((float)" << sigma_color_scaled << ")\n"
+        << "#define radius " << radius << "\n"
+        << "#define use_shared_memory " << use_shared_memory << "\n"
         << "#define BLOCK_X " << block_x << "\n"
         << "#define BLOCK_Y " << block_y << "\n"
+        << "#define has_ref " << has_ref << '\n'
         << kernel_source_template;
     const std::string kernel_source = kernel_source_io.str();
 
@@ -248,7 +246,7 @@ static std::variant<CUgraphExec, std::string> get_graphexec(
     CUdeviceptr d_dst, CUdeviceptr d_src, float * h_buffer,
     int width, int height, int stride,
     int radius,
-    bool use_shared_memory, int block_x, int block_y,
+    bool use_shared_memory, int block_x, int block_y, bool has_ref,
     CUcontext context, CUfunction function
 ) {
 
@@ -271,7 +269,7 @@ static std::variant<CUgraphExec, std::string> get_graphexec(
             .dstDevice = d_src,
             .dstPitch = pitch,
             .WidthInBytes = width * sizeof(float),
-            .Height = static_cast<size_t>(height),
+            .Height = static_cast<size_t>((1 + has_ref) * height),
             .Depth = 1,
         };
 
@@ -287,7 +285,7 @@ static std::variant<CUgraphExec, std::string> get_graphexec(
 
         unsigned int sharedMemBytes = (
             use_shared_memory ?
-            (2 * radius + block_y) * (2 * radius + block_x) * sizeof(float) :
+            (1 + has_ref) * (2 * radius + block_y) * (2 * radius + block_x) * sizeof(float) :
             0
         );
 
@@ -356,8 +354,15 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
 
     if (activationReason == arInitial) {
         vsapi->requestFrameFilter(n, d->node, frameCtx);
+        if (d->ref_node) {
+            vsapi->requestFrameFilter(n, d->ref_node, frameCtx);
+        }
     } else if (activationReason == arAllFramesReady) {
         const VSFrameRef * src = vsapi->getFrameFilter(n, d->node, frameCtx);
+        const VSFrameRef * ref = nullptr;
+        if (d->ref_node) {
+            ref = vsapi->getFrameFilter(n, d->ref_node, frameCtx);
+        }
 
         const int pl[] = { 0, 1, 2 };
         const VSFrameRef * fr[] = {
@@ -381,6 +386,9 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
             d->resources_lock.unlock();
             d->semaphore.release();
             vsapi->setFilterError(("BilateralGPU: " + error_message).c_str(), frameCtx);
+            if (d->ref_node) {
+                vsapi->freeFrame(ref);
+            }
             vsapi->freeFrame(src);
             return nullptr;
         };
@@ -407,66 +415,87 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
             int d_pitch = d->d_pitch;
             int d_stride = d_pitch / sizeof(float);
 
+            const uint8_t * refp = nullptr;
+            if (d->ref_node) {
+                refp = vsapi->getReadPtr(ref, plane);
+            }
+
             if (bps == 32) {
                 vs_bitblt(h_buffer, d_pitch, srcp, s_pitch, width_bytes, height);
+                if (d->ref_node) {
+                    vs_bitblt(&h_buffer[s_stride * height], d_pitch, refp, s_pitch, width_bytes, height);
+                }
             } else if (bps == 16) {
                 float * h_bufferp = h_buffer;
                 const uint16_t * src16p = reinterpret_cast<const uint16_t *>(srcp);
 
-                for (int y = 0; y < height; ++y) {
+                const auto load = [width, height, &h_bufferp, s_stride, d_stride](const uint16_t * srcp) {
+                    for (int y = 0; y < height; ++y) {
 #ifdef __AVX2__
-                    // VideoFrame is at least 32 bytes padded
-                    for (int x = 0; x < width; x += 8) {
-                        __m128i src = _mm_load_si128(
-                            reinterpret_cast<const __m128i *>(&src16p[x]));
-                        __m256 srcf = _mm256_cvtepi32_ps(_mm256_cvtepu16_epi32(src));
-                        srcf = _mm256_mul_ps(srcf,
-                            _mm256_set1_ps(static_cast<float>(1.0 / 65535.0)));
-                        _mm256_stream_ps(&h_bufferp[x], srcf);
-                    }
+                        // VideoFrame is at least 32 bytes padded
+                        for (int x = 0; x < width; x += 8) {
+                            __m128i src = _mm_load_si128(
+                                reinterpret_cast<const __m128i *>(&srcp[x]));
+                            __m256 srcf = _mm256_cvtepi32_ps(_mm256_cvtepu16_epi32(src));
+                            srcf = _mm256_mul_ps(srcf,
+                                _mm256_set1_ps(static_cast<float>(1.0 / 65535.0)));
+                            _mm256_stream_ps(&h_bufferp[x], srcf);
+                        }
 #else
-                    for (int x = 0; x < width; ++x) {
-                        h_bufferp[x] = static_cast<float>(src16p[x]) / 65535.0f;
-                    }
+                        for (int x = 0; x < width; ++x) {
+                            h_bufferp[x] = static_cast<float>(src16p[x]) / 65535.0f;
+                        }
 #endif
 
-                    h_bufferp += d_stride;
-                    src16p += s_stride;
+                        h_bufferp += d_stride;
+                        srcp += s_stride;
+                    }
+                };
+
+                load(reinterpret_cast<const uint16_t *>(srcp));
+                if (d->ref_node) {
+                    load(reinterpret_cast<const uint16_t *>(refp));
                 }
             } else if (bps == 8) {
                 float * h_bufferp = h_buffer;
-                const uint8_t * src8p = srcp;
 
-                for (int y = 0; y < height; ++y) {
+                const auto load = [width, height, &h_bufferp, s_stride, d_stride](const uint8_t * srcp) {
+                    for (int y = 0; y < height; ++y) {
 #ifdef __AVX2__
                     // VideoFrame is at least 32 bytes padded
-                    for (int x = 0; x < width; x += 16) {
-                        __m128i src = _mm_load_si128(
-                            reinterpret_cast<const __m128i *>(&src8p[x]));
-                        __m256 srcf_lo = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(src));
-                        srcf_lo = _mm256_mul_ps(
-                            srcf_lo,
-                            _mm256_set1_ps(static_cast<float>(1.0 / 255.0)));
-                        _mm256_stream_ps(&h_bufferp[x], srcf_lo);
+                        for (int x = 0; x < width; x += 16) {
+                            __m128i src = _mm_load_si128(
+                                reinterpret_cast<const __m128i *>(&srcp[x]));
+                            __m256 srcf_lo = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(src));
+                            srcf_lo = _mm256_mul_ps(
+                                srcf_lo,
+                                _mm256_set1_ps(static_cast<float>(1.0 / 255.0)));
+                            _mm256_stream_ps(&h_bufferp[x], srcf_lo);
 
-                        __m256 srcf_hi = _mm256_cvtepi32_ps(
-                            _mm256_cvtepu8_epi32(
-                                _mm_castps_si128(
-                                    _mm_permute_ps(
-                                        _mm_castsi128_ps(src),
-                                        0b01'00'11'10))));
-                        srcf_hi = _mm256_mul_ps(srcf_hi,
-                            _mm256_set1_ps(static_cast<float>(1.0 / 255.0)));
-                        _mm256_stream_ps(&h_bufferp[x + 8], srcf_hi);
-                    }
+                            __m256 srcf_hi = _mm256_cvtepi32_ps(
+                                _mm256_cvtepu8_epi32(
+                                    _mm_castps_si128(
+                                        _mm_permute_ps(
+                                            _mm_castsi128_ps(src),
+                                            0b01'00'11'10))));
+                            srcf_hi = _mm256_mul_ps(srcf_hi,
+                                _mm256_set1_ps(static_cast<float>(1.0 / 255.0)));
+                            _mm256_stream_ps(&h_bufferp[x + 8], srcf_hi);
+                        }
 #else
-                    for (int x = 0; x < width; ++x) {
-                        h_bufferp[x] = static_cast<float>(src8p[x]) / 255.f;
-                    }
+                        for (int x = 0; x < width; ++x) {
+                            h_bufferp[x] = static_cast<float>(src8p[x]) / 255.f;
+                        }
 #endif
 
-                    h_bufferp += d_stride;
-                    src8p += s_stride;
+                        h_bufferp += d_stride;
+                        srcp += s_stride;
+                    }
+                };
+
+                load(srcp);
+                if (d->ref_node) {
+                    load(reinterpret_cast<const uint8_t *>(refp));
                 }
             }
 
@@ -553,6 +582,9 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
         d->resources_lock.unlock();
         d->semaphore.release();
 
+        if (d->ref_node) {
+            vsapi->freeFrame(ref);
+        }
         vsapi->freeFrame(src);
 
         return dst;
@@ -566,6 +598,9 @@ static void VS_CC BilateralFree(
 
     BilateralData * d = static_cast<BilateralData *>(instanceData);
 
+    if (d->ref_node) {
+        vsapi->freeNode(d->ref_node);
+    }
     vsapi->freeNode(d->node);
 
     auto device = d->device;
@@ -588,8 +623,16 @@ static void VS_CC BilateralCreate(
     d->node = vsapi->propGetNode(in, "clip", 0, nullptr);
     d->vi = vsapi->getVideoInfo(d->node);
 
+    int error;
+
+    d->ref_node = vsapi->propGetNode(in, "ref", 0, &error);
+    bool has_ref = d->ref_node != nullptr;
+
     auto set_error = [&](const std::string & error_message) {
         vsapi->setError(out, ("BilateralGPU: " + error_message).c_str());
+        if (has_ref) {
+            vsapi->freeNode(d->ref_node);
+        }
         vsapi->freeNode(d->node);
     };
 
@@ -605,7 +648,10 @@ static void VS_CC BilateralCreate(
         return set_error("only constant format 8/16bit int or 32bit float input supported");
     }
 
-    int error;
+    const auto ref_vi = vsapi->getVideoInfo(d->ref_node);
+    if (d->ref_node && (!isSameFormat(d->vi, ref_vi) || d->vi->numFrames != ref_vi->numFrames)) {
+        return set_error("\"ref\" must be of the same format as \"clip\"");
+    }
 
     std::array<float, 3> sigma_spatial;
     for (int i = 0; i < std::ssize(sigma_spatial); ++i) {
@@ -726,28 +772,16 @@ static void VS_CC BilateralCreate(
         int max_width { d->process[0] ? width : width >> ssw };
         int max_height { d->process[0] ? height : height >> ssh };
 
-#ifdef _WIN64
-        const std::string plugin_path =
-            vsapi->getPluginPath(vsapi->getPluginById("com.wolframrhodium.bilateralgpu_rtc", core));
-        std::string folder_path = plugin_path.substr(0, plugin_path.find_last_of('/'));
-        int nvrtc_major, nvrtc_minor;
-        checkNVRTCError(nvrtcVersion(&nvrtc_major, &nvrtc_minor));
-        const int nvrtc_version = nvrtc_major * 10 + nvrtc_minor;
-        const std::string dll_path =
-            folder_path + "/nvrtc-builtins64_" + std::to_string(nvrtc_version) + ".dll";
-        const Resource<HMODULE, FreeLibrary> dll_handle = LoadLibraryA(dll_path.c_str());
-#endif
-
         CUfunction functions[3];
         for (int i = 0; i < d->num_streams; ++i) {
             Resource<CUdeviceptr, cuMemFree> d_src {};
             if (i == 0) {
                 size_t d_pitch;
                 checkError(cuMemAllocPitch(
-                    &d_src.data, &d_pitch, max_width * sizeof(float), max_height, 4));
+                    &d_src.data, &d_pitch, max_width * sizeof(float), (1 + has_ref) * max_height, 4));
                 d->d_pitch = static_cast<int>(d_pitch);
             } else {
-                checkError(cuMemAlloc(&d_src.data, max_height * d->d_pitch));
+                checkError(cuMemAlloc(&d_src.data, (1 + has_ref) * max_height * d->d_pitch));
             }
 
             Resource<CUdeviceptr, cuMemFree> d_dst {};
@@ -755,7 +789,7 @@ static void VS_CC BilateralCreate(
 
             Resource<float *, cuMemFreeHost> h_buffer {};
             checkError(cuMemAllocHost(
-                reinterpret_cast<void **>(&h_buffer.data), max_height * d->d_pitch));
+                reinterpret_cast<void **>(&h_buffer.data), (1 + has_ref) * max_height * d->d_pitch));
 
             Resource<CUstream, cuStreamDestroy> stream {};
             checkError(cuStreamCreate(&stream.data, CU_STREAM_NON_BLOCKING));
@@ -770,7 +804,7 @@ static void VS_CC BilateralCreate(
                     const auto result = compile(
                         width, height, d->d_pitch / sizeof(float),
                         sigma_spatial_scaled[plane], sigma_color_scaled[plane], radius[plane],
-                        use_shared_memory, block_x, block_y,
+                        use_shared_memory, block_x, block_y, has_ref,
                         d->device
                     );
 
@@ -791,7 +825,7 @@ static void VS_CC BilateralCreate(
                     d_dst, d_src, h_buffer,
                     plane_width, plane_height, d->d_pitch / sizeof(float),
                     radius[plane],
-                    use_shared_memory, block_x, block_y,
+                    use_shared_memory, block_x, block_y, has_ref,
                     d->context, functions[plane]
                 );
 
@@ -835,6 +869,12 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(
         "num_streams:int:opt;"
         "use_shared_memory:int:opt;"
         "block_x:int:opt;"
-        "block_y:int:opt;",
+        "block_y:int:opt;"
+        "ref:clip:opt;",
         BilateralCreate, nullptr, plugin);
+
+    auto getVersion = [](const VSMap *, VSMap * out, void *, VSCore *, const VSAPI *vsapi) {
+        vsapi->propSetData(out, "version", VERSION, -1, paReplace);
+    };
+    registerFunc("Version", "", getVersion, nullptr, plugin);
 }
