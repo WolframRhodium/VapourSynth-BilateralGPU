@@ -427,7 +427,6 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
                 }
             } else if (bps == 16) {
                 float * h_bufferp = h_buffer;
-                const uint16_t * src16p = reinterpret_cast<const uint16_t *>(srcp);
 
                 const auto load = [width, height, &h_bufferp, s_stride, d_stride](const uint16_t * srcp) {
                     for (int y = 0; y < height; ++y) {
