@@ -236,7 +236,7 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
                         }
 #else
                         for (int x = 0; x < width; ++x) {
-                            h_bufferp[x] = static_cast<float>(src16p[x]) / 65535.0f;
+                            h_bufferp[x] = static_cast<float>(srcp[x]) / 65535.0f;
                         }
 #endif
 
@@ -277,7 +277,7 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
                         }
 #else
                         for (int x = 0; x < width; ++x) {
-                            h_bufferp[x] = static_cast<float>(src8p[x]) / 255.f;
+                            h_bufferp[x] = static_cast<float>(srcp[x]) / 255.f;
                         }
 #endif
 
