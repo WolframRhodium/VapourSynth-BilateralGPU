@@ -18,8 +18,8 @@ void bilateral(
     float * __restrict__ dst, const float * __restrict__ src
 ) {
 
-    const int x = threadIdx.x + blockIdx.x * BlockDim.x;
-    const int y = threadIdx.y + blockIdx.y * BlockDim.y;
+    const int x = threadIdx.x + blockIdx.x * BLOCK_X;
+    const int y = threadIdx.y + blockIdx.y * BLOCK_Y;
 
     float num {};
     float den {};
@@ -28,11 +28,11 @@ void bilateral(
         extern __shared__ float buffer[
             /* (1 + has_ref) * (2 * radius + blockDim.y) * (2 * radius + blockDim.x) */];
 
-        for (int cy = threadIdx.y; cy < 2 * radius + BlockDim.y; cy += BlockDim.y) {
+        for (int cy = threadIdx.y; cy < 2 * radius + BLOCK_Y; cy += BLOCK_Y) {
             int sy = min(max(cy - static_cast<int>(threadIdx.y) - radius + y, 0), height - 1);
-            for (int cx = threadIdx.x; cx < 2 * radius + BlockDim.x; cx += BlockDim.x) {
+            for (int cx = threadIdx.x; cx < 2 * radius + BLOCK_X; cx += BLOCK_X) {
                 int sx = min(max(cx - static_cast<int>(threadIdx.x) - radius + x, 0), width - 1);
-                buffer[cy * (2 * radius + BlockDim.x) + cx] = src[sy * stride + sx];
+                buffer[cy * (2 * radius + BLOCK_X) + cx] = src[sy * stride + sx];
             }
         }
 
@@ -52,7 +52,7 @@ void bilateral(
             return;
 
         const float center = buffer[
-            (has_ref * (2 * radius + BLOCK_Y) + radius + threadIdx.y) * (2 * radius + BLOCK_X) + 
+            (has_ref * (2 * radius + BLOCK_Y) + radius + threadIdx.y) * (2 * radius + BLOCK_X) +
             radius + threadIdx.x
         ]; // src[(has_ref * height + y) * stride + x];
 
