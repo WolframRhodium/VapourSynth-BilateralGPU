@@ -1,5 +1,3 @@
-#include <memory>
-
 #include <CL/sycl.hpp>
 
 #define BLOCK_X 16
@@ -12,8 +10,6 @@ inline static void bilateral(
     float sigma_spatial_scaled, float sigma_color_scaled, int radius,
     sycl::nd_item<2> it, sycl::local_accessor<float, 1> buffer
 ) {
-
-    sycl::group<2> group = it.get_group();
 
     int x = static_cast<int>(it.get_global_id(1));
     int y = static_cast<int>(it.get_global_id(0));
