@@ -6,6 +6,8 @@ set(ENABLE_CUDA ON CACHE BOOL "Enable CUDA backend")
 set(ENABLE_CUDA_RTC ON CACHE BOOL "Enable CUDA NVRTC backend")
 set(USE_NVRTC_STATIC ON CACHE BOOL "Whether to use NVRTC static library")
 
+set(ENABLE_SYCL OFF CACHE BOOL "Enable SYCL backend")
+
 set(VAPOURSYNTH_INCLUDE_DIRECTORY "" CACHE PATH "Path to VapourSynth headers")
 
 if(NOT VAPOURSYNTH_INCLUDE_DIRECTORY)
@@ -55,4 +57,8 @@ endif() # ENABLE_CUDA
 
 if(ENABLE_CUDA_RTC)
     add_subdirectory(rtc_source)
+endif() # ENABLE_CUDA_RTC
+
+if(ENABLE_SYCL)
+    add_subdirectory(sycl_source)
 endif() # ENABLE_CUDA_RTC
