@@ -193,7 +193,7 @@ sycl::event launch(
     auto memcpy_d_to_h = stream.submit([&](sycl::handler & h) {
         h.depends_on(kernel);
 
-        h.memcpy(h_buffer, d_dst, (1 + has_ref) * height * sizeof(float));
+        h.memcpy(h_buffer, d_dst, (1 + has_ref) * height * stride * sizeof(float));
     });
 
     return memcpy_d_to_h;
