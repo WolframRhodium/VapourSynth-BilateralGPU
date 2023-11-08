@@ -52,7 +52,7 @@ jobs:
         unzip -q vs.zip
         mv vapoursynth-*/ vapoursynth/
 
-    - name: Configure
+    - name: Configure (CUDA)
       run: cmake -S . -B build -G Ninja -LA
         -D CMAKE_BUILD_TYPE=Release
         -D USE_NVRTC_STATIC=ON
@@ -64,11 +64,35 @@ jobs:
       env:
         CUDA_PATH: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8
 
-    - name: Build
+    - name: Build (CUDA)
       run: cmake --build build --verbose
 
-    - name: Install
+    - name: Install (CUDA)
       run: cmake --install build --prefix install
+
+    - name: Setup SYCL
+      run: |
+        curl -J -o dpcpp_installer.exe https://registrationcenter-download.intel.com/akdlm/IRC_NAS/c08746d2-5669-4ef8-9fc8-1ec330b3ac3b/w_dpcpp-cpp-compiler_p_2023.2.2.49534_offline.exe
+        dpcpp_installer -s -a -s --install-dir dpcpp --eula accept
+
+    - name: Configure (SYCL)
+      run: |
+        dpcpp\compiler\latest\env\vars.bat
+      
+        cmake -S . -B build_sycl -G Ninja -LA \
+          -D CMAKE_BUILD_TYPE=Release \
+          -D ENABLE_CUDA=OFF \
+          -D ENABLE_CUDA_RTC=OFF \
+          -D ENABLE_SYCL=ON \
+          -D VAPOURSYNTH_INCLUDE_DIRECTORY="%cd%\vapoursynth\include" \
+          -D CMAKE_CXX_COMPILER=icx \
+          -D CMAKE_CXX_FLAGS="-ffast-math -mavx2"
+
+    - name: Build (SYCL)
+      run: cmake --build build_sycl --verbose
+
+    - name: Install (CUDA)
+      run: cmake --install build_sycl --prefix install
 
     - name: Upload
       uses: actions/upload-artifact@v3
