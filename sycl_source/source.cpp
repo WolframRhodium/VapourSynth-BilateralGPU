@@ -242,7 +242,7 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
                     d->use_shared_memory, d->ref_node != nullptr,
                     *resource.stream
                 ).wait();
-            } catch (const sycl::exception & e) {
+            } catch (const std::exception & e) {
                 return set_error(e.what());
             }
 
@@ -463,20 +463,9 @@ static void VS_CC BilateralCreate(
 
     std::vector<sycl::device> devices;
     for (const auto & platform : sycl::platform::get_platforms()) {
-        #ifdef SYCL_EXT_ONEAPI_DEFAULT_CONTEXT
-        try {
-            for (const auto & device : platform.ext_oneapi_get_default_context().get_devices()) {
-                devices.emplace_back(device);
-            }
-        } catch (const sycl::exception & e) {
-            devices.clear();
-        #endif// SYCL_EXT_ONEAPI_DEFAULT_CONTEXT
-            for (const auto & device : platform.get_devices()) {
-                devices.emplace_back(device);
-            }
-        #ifdef SYCL_EXT_ONEAPI_DEFAULT_CONTEXT
+        for (const auto & device : platform.get_devices()) {
+            devices.emplace_back(device);
         }
-        #endif // SYCL_EXT_ONEAPI_DEFAULT_CONTEXT
     }
     if (0 <= device_id && device_id < static_cast<int>(devices.size())) {
         d->device = std::make_unique<sycl::device>(devices[device_id]);
@@ -484,11 +473,15 @@ static void VS_CC BilateralCreate(
         return set_error("invalid \"device_id\"");
     }
 
-    #ifdef SYCL_EXT_ONEAPI_DEFAULT_CONTEXT
-    d->context = std::make_unique<sycl::context>(d->device->get_platform().ext_oneapi_get_default_context());
-    #else
-    d->context = std::make_unique<sycl::context>(*d->device);
-    #endif // SYCL_EXT_ONEAPI_DEFAULT_CONTEXT
+    #if defined(SYCL_EXT_ONEAPI_DEFAULT_CONTEXT)
+    try {
+        d->context = std::make_unique<sycl::context>(d->device->get_platform().ext_oneapi_get_default_context());
+    } catch (const std::runtime_error & e) {
+    #endif // defined(SYCL_EXT_ONEAPI_DEFAULT_CONTEXT)
+        d->context = std::make_unique<sycl::context>(*d->device);
+    #if defined(SYCL_EXT_ONEAPI_DEFAULT_CONTEXT)
+    }
+    #endif // defined(SYCL_EXT_ONEAPI_DEFAULT_CONTEXT)
 
     d->num_streams = int64ToIntS(vsapi->propGetInt(in, "num_streams", 0, &error));
     if (error) {
@@ -561,19 +554,9 @@ static void VS_CC DeviceInfo(
 
     std::vector<sycl::device> devices;
     for (const auto & platform : sycl::platform::get_platforms()) {
-        #if defined SYCL_EXT_ONEAPI_DEFAULT_CONTEXT && SYCL_EXT_ONEAPI_DEFAULT_CONTEXT
-        try {
-            for (const auto & device : platform.ext_oneapi_get_default_context().get_devices()) {
-                devices.emplace_back(device);
-            }
-        } catch (const sycl::exception & e) {
-        #endif
-            for (const auto & device : platform.get_devices()) {
-                devices.emplace_back(device);
-            }
-        #if defined SYCL_EXT_ONEAPI_DEFAULT_CONTEXT && SYCL_EXT_ONEAPI_DEFAULT_CONTEXT
+        for (const auto & device : platform.get_devices()) {
+            devices.emplace_back(device);
         }
-        #endif
     }
     if (0 <= device_id && device_id < static_cast<int>(devices.size())) {
         using namespace sycl::info;
