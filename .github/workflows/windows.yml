@@ -71,7 +71,15 @@ jobs:
     - name: Install (CUDA)
       run: cmake --install build --prefix install
 
+    - name: Cache SYCL
+      id: cache-sycl
+      uses: actions/cache@v3
+      with:
+        path: D:\a\VapourSynth-BilateralGPU\VapourSynth-BilateralGPU\dpcpp
+        key: ${{ runner.os }}-dpcpp-2023.2.2
+
     - name: Setup SYCL
+      if: steps.cache-sycl.outputs.cache-hit != 'true'
       run: |
         curl -J -o dpcpp_installer.exe https://registrationcenter-download.intel.com/akdlm/IRC_NAS/c08746d2-5669-4ef8-9fc8-1ec330b3ac3b/w_dpcpp-cpp-compiler_p_2023.2.2.49534_offline.exe
         dpcpp_installer -s -a -s --install-dir dpcpp --eula accept
