@@ -30,7 +30,7 @@ jobs:
         unzip -q vs.zip
         mv vapoursynth*/ vapoursynth
 
-    - name: Configure
+    - name: Configure (CUDA)
       run: cmake -S . -B build -G Ninja -LA
         -D CMAKE_BUILD_TYPE=Release
         -D USE_NVRTC_STATIC=ON
@@ -40,11 +40,37 @@ jobs:
         -D CMAKE_CUDA_FLAGS="--threads 0 --use_fast_math --resource-usage -Wno-deprecated-gpu-targets"
         -D CMAKE_CUDA_ARCHITECTURES="50;61-real;75-real;86-real;89-real"
 
-    - name: Build
+    - name: Build (CUDA)
       run: cmake --build build --verbose
 
-    - name: Install
+    - name: Install (CUDA)
       run: cmake --install build --prefix install
+
+    - name: Setup SYCL
+      run: |
+        wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
+        echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
+        sudo apt-get update
+        sudo apt-get install -y intel-oneapi-dpcpp-cpp-2023.2.1
+
+    - name: Configure (SYCL)
+      run: |
+        source /opt/intel/oneapi/compiler/latest/env/vars.sh
+
+        cmake -S . -B build_sycl -G Ninja -LA \
+          -D CMAKE_BUILD_TYPE=Release \
+          -D ENABLE_CUDA=OFF \
+          -D ENABLE_CUDA_RTC=OFF \
+          -D ENABLE_SYCL=ON \
+          -D VAPOURSYNTH_INCLUDE_DIRECTORY="`pwd`/vapoursynth/include" \
+          -D CMAKE_CXX_COMPILER=icpx \
+          -D CMAKE_CXX_FLAGS="-Wall -ffast-math -march=x86-64-v3"
+
+    - name: Build (SYCL)
+      run: cmake --build build_sycl --verbose
+
+    - name: Install (SYCL)
+      run: cmake --install build_sycl --prefix install
 
     - name: Upload
       uses: actions/upload-artifact@v3
