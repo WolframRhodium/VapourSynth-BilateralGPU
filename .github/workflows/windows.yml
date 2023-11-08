@@ -6,6 +6,7 @@ on:
       - 'CMakeLists.txt'
       - 'source/*'
       - 'rtc_source/*'
+      - 'sycl_source/*'
       - '.github/workflows/windows.yml'
   workflow_dispatch:
     inputs:
@@ -79,19 +80,19 @@ jobs:
       run: |
         dpcpp\compiler\latest\env\vars.bat
       
-        cmake -S . -B build_sycl -G Ninja -LA \
-          -D CMAKE_BUILD_TYPE=Release \
-          -D ENABLE_CUDA=OFF \
-          -D ENABLE_CUDA_RTC=OFF \
-          -D ENABLE_SYCL=ON \
-          -D VAPOURSYNTH_INCLUDE_DIRECTORY="%cd%\vapoursynth\include" \
-          -D CMAKE_CXX_COMPILER=icx \
+        cmake -S . -B build_sycl -G Ninja -LA ^
+          -D CMAKE_BUILD_TYPE=Release ^
+          -D ENABLE_CUDA=OFF ^
+          -D ENABLE_CUDA_RTC=OFF ^
+          -D ENABLE_SYCL=ON ^
+          -D VAPOURSYNTH_INCLUDE_DIRECTORY="%cd%\vapoursynth\include" ^
+          -D CMAKE_CXX_COMPILER=icx ^
           -D CMAKE_CXX_FLAGS="-ffast-math -mavx2"
 
     - name: Build (SYCL)
       run: cmake --build build_sycl --verbose
 
-    - name: Install (CUDA)
+    - name: Install (SYCL)
       run: cmake --install build_sycl --prefix install
 
     - name: Upload
