@@ -86,7 +86,7 @@ jobs:
 
     - name: Configure (SYCL)
       run: |
-        "C:\Program Files (x86)\Intel\oneAPI\compiler\latest\env\vars.bat"
+        call "C:\Program Files (x86)\Intel\oneAPI\compiler\latest\env\vars.bat"
       
         cmake -S . -B build_sycl -G Ninja -LA ^
           -D CMAKE_BUILD_TYPE=Release ^
@@ -98,7 +98,10 @@ jobs:
           -D CMAKE_CXX_FLAGS="-ffast-math -mavx2"
 
     - name: Build (SYCL)
-      run: cmake --build build_sycl --verbose
+      run: |
+        call "C:\Program Files (x86)\Intel\oneAPI\compiler\latest\env\vars.bat"
+
+        cmake --build build_sycl --verbose
 
     - name: Install (SYCL)
       run: cmake --install build_sycl --prefix install
