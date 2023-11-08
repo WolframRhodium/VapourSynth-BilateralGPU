@@ -134,7 +134,6 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
         };
 
         float * h_buffer = resource.h_buffer;
-        const auto & stream = resource.stream;
 
         for (int plane = 0; plane < d->vi->format->numPlanes; plane++) {
             if (!d->process[plane]) {
@@ -235,13 +234,17 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
                 }
             }
 
-            launch(
-                resource.d_dst, resource.d_src, resource.h_buffer,
-                width, height, d_stride,
-                d->sigma_spatial_scaled[plane], d->sigma_color_scaled[plane], d->radius[plane],
-                d->use_shared_memory, d->ref_node != nullptr,
-                *resource.stream
-            ).wait();
+            try{
+                launch(
+                    resource.d_dst, resource.d_src, resource.h_buffer,
+                    width, height, d_stride,
+                    d->sigma_spatial_scaled[plane], d->sigma_color_scaled[plane], d->radius[plane],
+                    d->use_shared_memory, d->ref_node != nullptr,
+                    *resource.stream
+                ).wait();
+            } catch (const sycl::exception & e) {
+                return set_error(e.what());
+            }
 
             auto dstp = vsapi->getWritePtr(dst, plane);
 
@@ -475,7 +478,7 @@ static void VS_CC BilateralCreate(
         }
         #endif // SYCL_EXT_ONEAPI_DEFAULT_CONTEXT
     }
-    if (0 <= device_id && device_id < devices.size()) {
+    if (0 <= device_id && device_id < static_cast<int>(devices.size())) {
         d->device = std::make_unique<sycl::device>(devices[device_id]);
     } else {
         return set_error("invalid \"device_id\"");
@@ -572,7 +575,7 @@ static void VS_CC DeviceInfo(
         }
         #endif
     }
-    if (0 <= device_id && device_id < devices.size()) {
+    if (0 <= device_id && device_id < static_cast<int>(devices.size())) {
         using namespace sycl::info;
         const auto & device = devices[device_id];
 
