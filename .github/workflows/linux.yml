@@ -1,6 +1,14 @@
 name: Build (Linux)
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    paths:
+      - 'CMakeLists.txt'
+      - 'source/*'
+      - 'rtc_source/*'
+      - 'sycl_source/*'
+      - '.github/workflows/linux.yml'
+  workflow_dispatch:
 
 jobs:
   build-linux:
