@@ -131,9 +131,7 @@ jobs:
 
         mkdir SYCL-Runtime-${{ github.event.inputs.tag }}
         echo f | xcopy "C:\Program Files (x86)\Intel\oneAPI\compiler\latest\windows\bin\sycl6.dll" SYCL-Runtime-${{ github.event.inputs.tag }} /f
-        echo f | xcopy "C:\Program Files (x86)\Intel\oneAPI\compiler\latest\windows\bin\pi_win_proxy_loader.dll" SYCL-Runtime-${{ github.event.inputs.tag }} /f
-        echo f | xcopy "C:\Program Files (x86)\Intel\oneAPI\compiler\latest\windows\bin\pi_level_zero.dll" SYCL-Runtime-${{ github.event.inputs.tag }} /f
-        echo f | xcopy "C:\Program Files (x86)\Intel\oneAPI\compiler\latest\windows\bin\pi_opencl.dll" SYCL-Runtime-${{ github.event.inputs.tag }} /f
+        echo f | xcopy "C:\Program Files (x86)\Intel\oneAPI\compiler\latest\windows\bin\pi_*.dll" SYCL-Runtime-${{ github.event.inputs.tag }} /f /i
         echo f | xcopy "C:\Program Files (x86)\Intel\oneAPI\compiler\latest\windows\redist\intel64_win\compiler\libmmd.dll" SYCL-Runtime-${{ github.event.inputs.tag }} /f
         7z a -t7z -mx=9 ../SYCL-Runtime-${{ github.event.inputs.tag }}.7z SYCL-Runtime-${{ github.event.inputs.tag }}
 
