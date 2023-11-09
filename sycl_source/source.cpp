@@ -22,6 +22,14 @@
 
 #include <config.h>
 
+#ifndef USE_DEAFAULT_CONTEXT
+    #if defined(SYCL_EXT_ONEAPI_DEFAULT_CONTEXT) && SYCL_EXT_ONEAPI_DEFAULT_CONTEXT >= 1
+        #define USE_DEFAULT_CONTEXT 1
+    #else
+        #define USE_DEFAULT_CONTEXT 0
+    #endif
+#endif
+
 extern sycl::event launch(
     float * d_dst, float * d_src, float * h_buffer,
     int width, int height, int stride,
@@ -473,15 +481,15 @@ static void VS_CC BilateralCreate(
         return set_error("invalid \"device_id\"");
     }
 
-    #if defined(SYCL_EXT_ONEAPI_DEFAULT_CONTEXT)
+    #if USE_DEFAULT_CONTEXT
     try {
         d->context = std::make_unique<sycl::context>(d->device->get_platform().ext_oneapi_get_default_context());
     } catch (const std::runtime_error & e) {
-    #endif // defined(SYCL_EXT_ONEAPI_DEFAULT_CONTEXT)
+    #endif
         d->context = std::make_unique<sycl::context>(*d->device);
-    #if defined(SYCL_EXT_ONEAPI_DEFAULT_CONTEXT)
+    #if USE_DEFAULT_CONTEXT
     }
-    #endif // defined(SYCL_EXT_ONEAPI_DEFAULT_CONTEXT)
+    #endif
 
     d->num_streams = int64ToIntS(vsapi->propGetInt(in, "num_streams", 0, &error));
     if (error) {
