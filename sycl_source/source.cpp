@@ -137,6 +137,7 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
             d->resources_lock.unlock();
             d->semaphore.release();
             vsapi->setFilterError(("BilateralSYCL: " + error_message).c_str(), frameCtx);
+            vsapi->freeFrame(dst);
             if (d->ref_node) {
                 vsapi->freeFrame(ref);
             }
