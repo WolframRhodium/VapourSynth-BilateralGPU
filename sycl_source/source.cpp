@@ -34,7 +34,9 @@ extern sycl::event launch(
     float * d_dst, float * d_src, float * h_buffer,
     int width, int height, int stride,
     float sigma_spatial_scaled, float sigma_color_scaled, int radius,
-    bool use_shared_memory, bool has_ref,
+    bool use_shared_memory,
+    int block_x, int block_y,
+    bool has_ref,
     sycl::queue & stream
 );
 
@@ -74,6 +76,7 @@ struct BilateralData {
     float sigma_spatial_scaled[3], sigma_color_scaled[3];
     int radius[3];
     bool use_shared_memory;
+    int block_x, block_y;
 
     int num_streams;
     std::unique_ptr<sycl::device> device;
@@ -247,7 +250,9 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
                     resource.d_dst, resource.d_src, resource.h_buffer,
                     width, height, d_stride,
                     d->sigma_spatial_scaled[plane], d->sigma_color_scaled[plane], d->radius[plane],
-                    d->use_shared_memory, d->ref_node != nullptr,
+                    d->use_shared_memory,
+                    d->block_x, d->block_y,
+                    d->ref_node != nullptr,
                     *resource.stream
                 ).wait();
             } catch (const std::exception & e) {
@@ -501,6 +506,16 @@ static void VS_CC BilateralCreate(
         d->use_shared_memory = true;
     }
 
+    d->block_x = int64ToIntS(vsapi->propGetInt(in, "block_x", 0, &error));
+    if (error) {
+        d->block_x = 16;
+    }
+
+    d->block_y = int64ToIntS(vsapi->propGetInt(in, "block_y", 0, &error));
+    if (error) {
+        d->block_y = 16;
+    }
+
     {
         d->semaphore.current.store(d->num_streams - 1, std::memory_order::relaxed);
 
@@ -680,6 +695,8 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(
         "device_id:int:opt;"
         "num_streams:int:opt;"
         "use_shared_memory:int:opt;"
+        "block_x:int:opt;"
+        "block_y:int:opt;"
         "ref:clip:opt;",
         BilateralCreate, nullptr, plugin);
 
