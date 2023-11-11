@@ -3,6 +3,8 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <exception>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -246,7 +248,7 @@ static const VSFrameRef *VS_CC BilateralGetFrame(
                 }
             }
 
-            try{
+            try {
                 launch(
                     resource.d_dst, resource.d_src, resource.h_buffer,
                     width, height, d_stride,
@@ -359,13 +361,17 @@ static void VS_CC BilateralFree(
     }
     vsapi->freeNode(d->node);
 
-    for (const auto & resource : d->resources) {
-        sycl::free(resource.h_buffer, *d->context);
-        sycl::free(resource.d_dst, *d->context);
-        sycl::free(resource.d_src, *d->context);
-    }
+    try {
+        for (const auto & resource : d->resources) {
+            sycl::free(resource.h_buffer, *d->context);
+            sycl::free(resource.d_dst, *d->context);
+            sycl::free(resource.d_src, *d->context);
+        }
 
-    delete d;
+        delete d;
+    } catch (const std::exception & e) {
+        fprintf(stderr, "%s\n", e.what());
+    }
 }
 
 static void VS_CC BilateralCreate(
@@ -532,30 +538,34 @@ static void VS_CC BilateralCreate(
 
         d->d_pitch = max_width * sizeof(float);
 
-        for (int i = 0; i < d->num_streams; ++i) {
-            auto d_src = sycl::malloc_device<float>(
-                (1 + (d->ref_node != nullptr)) * max_height * max_width,
-                *d->device, *d->context
-            );
+        try {
+            for (int i = 0; i < d->num_streams; ++i) {
+                auto d_src = sycl::malloc_device<float>(
+                    (1 + (d->ref_node != nullptr)) * max_height * max_width,
+                    *d->device, *d->context
+                );
 
-            auto d_dst = sycl::malloc_device<float>(
-                max_height * max_width,
-                *d->device, *d->context
-            );
+                auto d_dst = sycl::malloc_device<float>(
+                    max_height * max_width,
+                    *d->device, *d->context
+                );
 
-            auto h_buffer = sycl::malloc_host<float>(
-                (1 + (d->ref_node != nullptr)) * max_height * max_width,
-                *d->context
-            );
+                auto h_buffer = sycl::malloc_host<float>(
+                    (1 + (d->ref_node != nullptr)) * max_height * max_width,
+                    *d->context
+                );
 
-            auto stream = std::make_unique<sycl::queue>(*d->context, *d->device);
+                auto stream = std::make_unique<sycl::queue>(*d->context, *d->device);
 
-            d->resources.push_back(SYCL_Resource{
-                .d_src = std::move(d_src),
-                .d_dst = std::move(d_dst),
-                .h_buffer = std::move(h_buffer),
-                .stream = std::move(stream),
-            });
+                d->resources.push_back(SYCL_Resource{
+                    .d_src = std::move(d_src),
+                    .d_dst = std::move(d_dst),
+                    .h_buffer = std::move(h_buffer),
+                    .stream = std::move(stream),
+                });
+            }
+        } catch (const std::exception & e) {
+            return set_error(e.what());
         }
     }
 
