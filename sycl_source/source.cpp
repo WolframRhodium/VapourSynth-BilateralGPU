@@ -389,7 +389,7 @@ static void VS_CC BilateralCreate(
     bool has_ref = d->ref_node != nullptr;
 
     auto set_error = [&](const std::string & error_message) {
-        vsapi->setError(out, ("BilateralGPU: " + error_message).c_str());
+        vsapi->setError(out, ("BilateralSYCL: " + error_message).c_str());
         if (has_ref) {
             vsapi->freeNode(d->ref_node);
         }
