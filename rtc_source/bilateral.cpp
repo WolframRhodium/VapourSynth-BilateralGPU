@@ -151,13 +151,15 @@ struct BilateralData {
     Resource<CUmodule, cuModuleUnload> modules[3];
     std::vector<CUDA_Resource> resources;
     std::mutex resources_lock;
+    std::string custom_kernel;
 };
 
 static std::variant<CUmodule, std::string> compile(
     int width, int height, int stride,
     float sigma_spatial_scaled, float sigma_color_scaled, int radius,
     bool use_shared_memory, int block_x, int block_y, bool has_ref,
-    CUdevice device
+    CUdevice device,
+    const std::string & custom_kernel
 ) noexcept {
 
     const auto set_error = [](const std::string & error_message) {
@@ -177,6 +179,7 @@ static std::variant<CUmodule, std::string> compile(
         << "#define BLOCK_X " << block_x << "\n"
         << "#define BLOCK_Y " << block_y << "\n"
         << "#define has_ref " << has_ref << '\n'
+        << custom_kernel
         << kernel_source_template;
     const std::string kernel_source = kernel_source_io.str();
 
@@ -718,6 +721,20 @@ static void VS_CC BilateralCreate(
         }
     }
 
+    if (vsapi->propNumElements(in, "custom") > 0) {
+        d->custom_kernel = vsapi->propGetData(in, "custom", 0, &error);
+    } else {
+        std::ostringstream custom_kernel;
+        custom_kernel
+            << "__device__ float calc_weight(int dx, int dy, float value, float center) {\n"
+            << "    float space = dy * dy + dx * dx;\n"
+            << "    float range = (value - center) * (value - center);\n"
+            << "    float weight = exp2f(space * " << sigma_spatial_scaled[0] << " + range * " << sigma_color_scaled[0] << ");\n"
+            << "    return weight;"
+            << "}";
+        d->custom_kernel = custom_kernel.str();
+    }
+
     // CUDA related
     {
         checkError(cuInit(0));
@@ -804,7 +821,8 @@ static void VS_CC BilateralCreate(
                         width, height, d->d_pitch / sizeof(float),
                         sigma_spatial_scaled[plane], sigma_color_scaled[plane], radius[plane],
                         use_shared_memory, block_x, block_y, has_ref,
-                        d->device
+                        d->device,
+                        d->custom_kernel
                     );
 
                     if (std::holds_alternative<CUmodule>(result)) {
@@ -869,7 +887,8 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(
         "use_shared_memory:int:opt;"
         "block_x:int:opt;"
         "block_y:int:opt;"
-        "ref:clip:opt;",
+        "ref:clip:opt;"
+        "custom:data:opt;",
         BilateralCreate, nullptr, plugin);
 
     auto getVersion = [](const VSMap *, VSMap * out, void *, VSCore *, const VSAPI *vsapi) {

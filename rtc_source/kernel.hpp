@@ -9,7 +9,10 @@ external variables:
     bool has_ref
 */
 
-__device__ static const dim3 BlockDim = dim3(BLOCK_X, BLOCK_Y);
+// __device__ static const dim3 BlockDim = dim3(BLOCK_X, BLOCK_Y);
+
+__device__
+float calc_weight(int dx, int dy, float value, float center);
 
 extern "C"
 __global__
@@ -64,10 +67,7 @@ void bilateral(
 
                 float value = buffer[(has_ref * (2 * radius + BLOCK_Y) + sy) * (2 * radius + BLOCK_X) + sx];
 
-                float space = cy * cy + cx * cx;
-                float range = (value - center) * (value - center);
-
-                float weight = exp2f(space * sigma_spatial_scaled + range * sigma_color_scaled);
+                float weight = calc_weight(cx, cy, value, center);
 
                 if constexpr (has_ref) {
                     value = buffer[sy * (2 * radius + BLOCK_X) + sx];
@@ -89,10 +89,7 @@ void bilateral(
             for (int cx = max(x - radius, 0); cx <= min(x + radius, width - 1); ++cx) {
                 float value = src[(has_ref * height + cy) * stride + cx];
 
-                float space = (y - cy) * (y - cy) + (x - cx) * (x - cx);
-                float range = (value - center) * (value - center);
-
-                float weight = exp2f(space * sigma_spatial_scaled + range * sigma_color_scaled);
+                float weight = calc_weight(x - cx, y - cy, value, center);
 
                 if constexpr (has_ref) {
                     value = src[cy * stride + cx];
