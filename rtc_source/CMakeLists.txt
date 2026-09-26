@@ -25,6 +25,7 @@ if (USE_NVRTC_STATIC AND (CUDAToolkit_VERSION_MAJOR GREATER_EQUAL "12" OR (
 
     if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
         set_property(TARGET bilateralgpu_rtc PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+        target_link_libraries(bilateralgpu_rtc PRIVATE ntdll)
     endif()
 else()
     if (USE_NVRTC_STATIC)
